@@ -43,6 +43,29 @@ ensure_proxy_user() {
   fi
 }
 
+configure_dns() {
+  local dns_line
+  dns_line="$(
+    awk -F= '
+      /^[[:space:]]*DNS[[:space:]]*=/ {
+        print $2
+        exit
+      }
+    ' "${AWG_CONFIG}"
+  )"
+
+  if [[ -z "${dns_line//[[:space:]]/}" ]]; then
+    return 0
+  fi
+
+  : > /etc/resolv.conf
+  while IFS= read -r raw_dns; do
+    dns="$(printf '%s' "${raw_dns}" | trim)"
+    [[ -n "${dns}" ]] || continue
+    echo "nameserver ${dns}" >> /etc/resolv.conf
+  done < <(printf '%s\n' "${dns_line}" | tr ',' '\n')
+}
+
 sanitize_awg_config() {
   local sanitized="/run/${AWG_INTERFACE}.conf"
   awk '
@@ -148,6 +171,7 @@ main() {
   require_tools
   ensure_awg_config
   ensure_proxy_user
+  configure_dns
   sanitize_awg_config
   setup_awg_interface
   setup_policy_routing

@@ -50,9 +50,21 @@ ensure_packages() {
     gnupg2 \
     software-properties-common \
     python3-launchpadlib \
-    linux-headers-"$(uname -r)" \
-    docker.io \
-    docker-compose-plugin
+    linux-headers-"$(uname -r)"
+
+  if command -v docker >/dev/null 2>&1; then
+    log "docker already installed, skipping engine install"
+  else
+    log "docker not found, installing engine"
+    if ! apt-get install -y docker-ce docker-ce-cli containerd.io; then
+      apt-get install -y docker.io
+    fi
+  fi
+
+  if ! docker compose version >/dev/null 2>&1; then
+    log "installing docker compose plugin"
+    apt-get install -y docker-compose-plugin
+  fi
 }
 
 enable_docker() {

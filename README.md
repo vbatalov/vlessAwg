@@ -3,8 +3,7 @@
 Один контейнер поднимает:
 
 - `xray` (входы VLESS/SOCKS)
-- `AmneziaWG` клиент (`amneziawg-go` + `awg`)
-- локальный `danted`, через который Xray отправляет VPN-трафик
+- `AmneziaWG` клиент (`awg` + backend `amneziawg`/`amneziawg-go`)
 
 Поддерживаются 2 режима в рамках одного проекта:
 
@@ -17,6 +16,7 @@
 - `SOCKS`
 
 `VPN`-режим строго идет только через `awg0` (без fallback на прямой `VPS`).
+Для `vless-vpn` и `socks-vpn` Xray использует `freedom` outbound с `sendThrough` адреса `awg0`.
 
 ## Файлы
 
@@ -37,6 +37,15 @@ cp .env.example .env
 
 ```bash
 sysctl -w net.ipv4.conf.all.src_valid_mark=1
+# для постоянного применения:
+# echo 'net.ipv4.conf.all.src_valid_mark=1' >/etc/sysctl.d/99-dockervpn.conf
+# sysctl --system
+```
+
+Если используется `AWG_BACKEND=kernel`, модуль `amneziawg` должен быть установлен и загружен на VPS:
+
+```bash
+modprobe amneziawg
 ```
 
 ## Запуск
@@ -60,7 +69,7 @@ sysctl -w net.ipv4.conf.all.src_valid_mark=1
 
 ## AWG watchdog
 
-Контейнер включает watchdog для `awg0`: при слишком старом handshake автоматически перезапускает AWG-стек и локальный VPN SOCKS.
+Контейнер включает watchdog для `awg0`: при слишком старом handshake автоматически перезапускает AWG-стек.
 
 Параметры в `.env`:
 
@@ -70,3 +79,6 @@ sysctl -w net.ipv4.conf.all.src_valid_mark=1
 - `AWG_WATCHDOG_FAIL_THRESHOLD`
 - `AWG_MTU_OVERRIDE`
 - `AWG_TCP_MSS`
+- `AWG_PERSISTENT_KEEPALIVE`
+- `AWG_BACKEND`
+- `AWG_LISTEN_PORT`

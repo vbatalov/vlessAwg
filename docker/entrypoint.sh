@@ -4,9 +4,6 @@ set -euo pipefail
 AWG_CONFIG="${AWG_CONFIG:-/config/awg0.conf}"
 AWG_INTERFACE="${AWG_INTERFACE:-awg0}"
 AWG_ROUTE_TABLE="${AWG_ROUTE_TABLE:-100}"
-AWG_ROUTE_MARK="${AWG_ROUTE_MARK:-100}"
-VPN_UPSTREAM_SOCKS_PORT="${VPN_UPSTREAM_SOCKS_PORT:-15081}"
-SOCKS_UPSTREAM_USER="${SOCKS_UPSTREAM_USER:-awgproxy}"
 ENABLE_IPV6_TABLE="${ENABLE_IPV6_TABLE:-1}"
 AWG_WATCHDOG_ENABLED="${AWG_WATCHDOG_ENABLED:-1}"
 AWG_WATCHDOG_INTERVAL="${AWG_WATCHDOG_INTERVAL:-15}"
@@ -14,7 +11,13 @@ AWG_WATCHDOG_STALE_SECONDS="${AWG_WATCHDOG_STALE_SECONDS:-75}"
 AWG_WATCHDOG_FAIL_THRESHOLD="${AWG_WATCHDOG_FAIL_THRESHOLD:-3}"
 AWG_MTU_OVERRIDE="${AWG_MTU_OVERRIDE:-}"
 AWG_TCP_MSS="${AWG_TCP_MSS:-1240}"
-AWG_PERSISTENT_KEEPALIVE="${AWG_PERSISTENT_KEEPALIVE:-10}"
+AWG_PERSISTENT_KEEPALIVE="${AWG_PERSISTENT_KEEPALIVE:-25}"
+AWG_BACKEND="${AWG_BACKEND:-auto}"
+AWG_LISTEN_PORT="${AWG_LISTEN_PORT:-}"
+
+AWG_SOURCE_IPV4=""
+AWG_SOURCE_IPV6=""
+ACTIVE_AWG_BACKEND="unknown"
 
 fail() {
   echo "fatal: $*" >&2
@@ -26,13 +29,15 @@ trim() {
 }
 
 require_tools() {
-  command -v amneziawg-go >/dev/null || fail "amneziawg-go not found"
   command -v awg >/dev/null || fail "awg not found"
   command -v awg-quick >/dev/null || fail "awg-quick not found"
   command -v xray >/dev/null || fail "xray not found"
   command -v ip >/dev/null || fail "ip command not found"
   command -v iptables >/dev/null || fail "iptables not found"
-  command -v danted >/dev/null || fail "danted not found"
+
+  if [[ "${AWG_BACKEND}" == "userspace" ]]; then
+    command -v amneziawg-go >/dev/null || fail "amneziawg-go not found"
+  fi
 }
 
 ensure_root() {
@@ -44,14 +49,8 @@ ensure_awg_config() {
   grep -Eq '^[[:space:]]*Address[[:space:]]*=' "${AWG_CONFIG}" || fail "AWG config must include Address"
 }
 
-ensure_proxy_user() {
-  if ! id -u "${SOCKS_UPSTREAM_USER}" >/dev/null 2>&1; then
-    useradd --system --home /nonexistent --shell /usr/sbin/nologin "${SOCKS_UPSTREAM_USER}"
-  fi
-}
-
 configure_dns() {
-  local dns_line
+  local dns_line dns raw_dns
   dns_line="$(
     awk -F= '
       /^[[:space:]]*DNS[[:space:]]*=/ {
@@ -82,17 +81,73 @@ sanitize_awg_config() {
   chmod 600 "${sanitized}"
 }
 
+extract_awg_source_ips() {
+  local sanitized address
+  sanitized="/run/${AWG_INTERFACE}.conf"
+  AWG_SOURCE_IPV4=""
+  AWG_SOURCE_IPV6=""
+
+  while IFS= read -r address; do
+    address="$(printf '%s' "${address}" | trim)"
+    [[ -n "${address}" ]] || continue
+    address="${address%%/*}"
+
+    if [[ -z "${AWG_SOURCE_IPV4}" && "${address}" == *.* ]]; then
+      AWG_SOURCE_IPV4="${address}"
+      continue
+    fi
+
+    if [[ -z "${AWG_SOURCE_IPV6}" && "${address}" == *:* ]]; then
+      AWG_SOURCE_IPV6="${address}"
+    fi
+  done < <(
+    awk -F= '
+      /^[[:space:]]*Address[[:space:]]*=/ {
+        print $2
+      }
+    ' "${sanitized}" | tr ',' '\n'
+  )
+
+  [[ -n "${AWG_SOURCE_IPV4}" ]] || fail "failed to detect AWG source IPv4 from Address"
+}
+
+create_awg_interface() {
+  local kernel_err="/run/awg-kernel.err"
+
+  ACTIVE_AWG_BACKEND="unknown"
+
+  if [[ "${AWG_BACKEND}" == "auto" || "${AWG_BACKEND}" == "kernel" ]]; then
+    if ip link add "${AWG_INTERFACE}" type amneziawg 2>"${kernel_err}"; then
+      ACTIVE_AWG_BACKEND="kernel"
+      return 0
+    fi
+
+    if [[ "${AWG_BACKEND}" == "kernel" ]]; then
+      fail "kernel backend requested but unavailable: $(cat "${kernel_err}")"
+    fi
+  fi
+
+  command -v amneziawg-go >/dev/null || fail "amneziawg-go not found for userspace backend"
+  LOG_LEVEL="${LOG_LEVEL:-info}" amneziawg-go "${AWG_INTERFACE}"
+  ACTIVE_AWG_BACKEND="userspace"
+}
+
 setup_awg_interface() {
   local sanitized="/run/${AWG_INTERFACE}.conf"
   local stripped="/run/${AWG_INTERFACE}.stripped.conf"
+  local raw_address address mtu_value target_mtu
 
   if ip link show "${AWG_INTERFACE}" >/dev/null 2>&1; then
     ip link del "${AWG_INTERFACE}"
   fi
 
-  LOG_LEVEL="${LOG_LEVEL:-info}" amneziawg-go "${AWG_INTERFACE}"
+  create_awg_interface
   awg-quick strip "${sanitized}" > "${stripped}"
   awg setconf "${AWG_INTERFACE}" "${stripped}"
+  if [[ -n "${AWG_LISTEN_PORT}" && "${AWG_LISTEN_PORT}" != "0" ]]; then
+    awg set "${AWG_INTERFACE}" listen-port "${AWG_LISTEN_PORT}"
+  fi
+
 
   if [[ -n "${AWG_PERSISTENT_KEEPALIVE}" && "${AWG_PERSISTENT_KEEPALIVE}" != "0" ]]; then
     while IFS= read -r peer; do
@@ -121,67 +176,34 @@ setup_awg_interface() {
     }
   ' "${sanitized}")"
 
-  local target_mtu
   target_mtu="${AWG_MTU_OVERRIDE:-${mtu_value:-1420}}"
   ip link set dev "${AWG_INTERFACE}" up mtu "${target_mtu}"
+
+  extract_awg_source_ips
 }
 
 setup_policy_routing() {
-  local uid
-  uid="$(id -u "${SOCKS_UPSTREAM_USER}")"
-
   if ! grep -Eq "^[[:space:]]*${AWG_ROUTE_TABLE}[[:space:]]+amnezia$" /etc/iproute2/rt_tables; then
     echo "${AWG_ROUTE_TABLE} amnezia" >> /etc/iproute2/rt_tables
   fi
 
   ip route replace default dev "${AWG_INTERFACE}" table "${AWG_ROUTE_TABLE}"
-  ip rule del fwmark "${AWG_ROUTE_MARK}" table "${AWG_ROUTE_TABLE}" 2>/dev/null || true
-  ip rule add fwmark "${AWG_ROUTE_MARK}" table "${AWG_ROUTE_TABLE}" priority 10000
+  ip rule del from "${AWG_SOURCE_IPV4}/32" table "${AWG_ROUTE_TABLE}" 2>/dev/null || true
+  ip rule add from "${AWG_SOURCE_IPV4}/32" table "${AWG_ROUTE_TABLE}" priority 10000
 
-  if [[ "${ENABLE_IPV6_TABLE}" == "1" ]] && ip -6 addr show dev "${AWG_INTERFACE}" | grep -q 'inet6 '; then
+  if [[ "${ENABLE_IPV6_TABLE}" == "1" && -n "${AWG_SOURCE_IPV6}" ]]; then
     ip -6 route replace default dev "${AWG_INTERFACE}" table "${AWG_ROUTE_TABLE}"
-    ip -6 rule del fwmark "${AWG_ROUTE_MARK}" table "${AWG_ROUTE_TABLE}" 2>/dev/null || true
-    ip -6 rule add fwmark "${AWG_ROUTE_MARK}" table "${AWG_ROUTE_TABLE}" priority 10000
+    ip -6 rule del from "${AWG_SOURCE_IPV6}/128" table "${AWG_ROUTE_TABLE}" 2>/dev/null || true
+    ip -6 rule add from "${AWG_SOURCE_IPV6}/128" table "${AWG_ROUTE_TABLE}" priority 10000
   fi
 
-  iptables -t mangle -D OUTPUT -m owner --uid-owner "${uid}" -j MARK --set-mark "${AWG_ROUTE_MARK}" 2>/dev/null || true
-  iptables -t mangle -A OUTPUT -m owner --uid-owner "${uid}" -j MARK --set-mark "${AWG_ROUTE_MARK}"
-  iptables -t mangle -D OUTPUT -m owner --uid-owner "${uid}" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "${AWG_TCP_MSS}" 2>/dev/null || true
-  iptables -t mangle -A OUTPUT -m owner --uid-owner "${uid}" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "${AWG_TCP_MSS}"
-}
-
-render_danted_config() {
-  cat > /etc/danted-vpn.conf <<CFG
-logoutput: stderr
-internal: 127.0.0.1 port = ${VPN_UPSTREAM_SOCKS_PORT}
-external: ${AWG_INTERFACE}
-socksmethod: none
-user.privileged: root
-user.notprivileged: ${SOCKS_UPSTREAM_USER}
-
-client pass {
-  from: 127.0.0.1/32 to: 0.0.0.0/0
-  log: error connect disconnect
-}
-
-socks pass {
-  from: 127.0.0.1/32 to: 0.0.0.0/0
-  protocol: tcp udp
-  log: error connect disconnect
-}
-CFG
-}
-
-start_danted() {
-  pkill -x danted 2>/dev/null || true
-  danted -N 1 -f /etc/danted-vpn.conf &
+  iptables -t mangle -D OUTPUT -o "${AWG_INTERFACE}" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "${AWG_TCP_MSS}" 2>/dev/null || true
+  iptables -t mangle -A OUTPUT -o "${AWG_INTERFACE}" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "${AWG_TCP_MSS}"
 }
 
 latest_handshake_age_seconds() {
   local latest now
-  latest="$(
-    awg show "${AWG_INTERFACE}" latest-handshakes 2>/dev/null | awk 'NR==1{print $2}'
-  )"
+  latest="$(awg show "${AWG_INTERFACE}" latest-handshakes 2>/dev/null | awk 'NR==1{print $2}')"
 
   if [[ -z "${latest}" || "${latest}" == "0" ]]; then
     echo "999999"
@@ -193,11 +215,10 @@ latest_handshake_age_seconds() {
 }
 
 restart_awg_stack() {
-  echo "watchdog: restarting ${AWG_INTERFACE} and vpn socks"
+  echo "watchdog: restarting ${AWG_INTERFACE}"
   sanitize_awg_config
   setup_awg_interface
   setup_policy_routing
-  start_danted
 }
 
 start_awg_watchdog() {
@@ -233,8 +254,11 @@ show_summary() {
   echo "gateway started"
   echo "  awg config: ${AWG_CONFIG}"
   echo "  awg interface: ${AWG_INTERFACE}"
-  echo "  vpn upstream socks: 127.0.0.1:${VPN_UPSTREAM_SOCKS_PORT}"
-  echo "  route table/mark: ${AWG_ROUTE_TABLE}/${AWG_ROUTE_MARK}"
+  echo "  awg backend: ${ACTIVE_AWG_BACKEND}"
+  echo "  awg listen port: ${AWG_LISTEN_PORT:-auto}"
+  echo "  awg source ipv4: ${AWG_SOURCE_IPV4}"
+  echo "  awg source ipv6: ${AWG_SOURCE_IPV6:-none}"
+  echo "  route table: ${AWG_ROUTE_TABLE}"
   echo "  awg mtu override: ${AWG_MTU_OVERRIDE:-auto}"
   echo "  awg tcp mss: ${AWG_TCP_MSS}"
   echo "  awg keepalive: ${AWG_PERSISTENT_KEEPALIVE}"
@@ -245,15 +269,13 @@ main() {
   ensure_root
   require_tools
   ensure_awg_config
-  ensure_proxy_user
   configure_dns
   sanitize_awg_config
   setup_awg_interface
   setup_policy_routing
-  render_danted_config
-  start_danted
-  start_awg_watchdog
+  export AWG_SOURCE_IPV4 AWG_SOURCE_IPV6
   /usr/local/bin/render-config.sh
+  start_awg_watchdog
   show_summary
   exec xray run -config /etc/xray/config.json
 }

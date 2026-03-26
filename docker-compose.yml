@@ -39,6 +39,8 @@ services:
       AWG_MTU_OVERRIDE: ${AWG_MTU_OVERRIDE:-1280}
       AWG_TCP_MSS: ${AWG_TCP_MSS:-1240}
       AWG_PERSISTENT_KEEPALIVE: ${AWG_PERSISTENT_KEEPALIVE:-10}
+      AWG_BACKEND: ${AWG_BACKEND:-auto}
+      AWG_LISTEN_PORT: ${AWG_LISTEN_PORT:-}
     volumes:
       - ./config:/config:ro
       - gateway-state:/var/lib/dockervpn

@@ -7,17 +7,18 @@ VLESS_FP="${VLESS_FP:-chrome}"
 VLESS_FLOW="${VLESS_FLOW:-xtls-rprx-vision}"
 VLESS_SHORT_ID="${VLESS_SHORT_ID:-}"
 
-VLESS_DIRECT_PORT="${VLESS_DIRECT_PORT:-443}"
-VLESS_VPN_PORT="${VLESS_VPN_PORT:-8443}"
+VLESS_DIRECT_PORT="${VLESS_DIRECT_PORT:-8443}"
+VLESS_VPN_PORT="${VLESS_VPN_PORT:-443}"
 SOCKS_DIRECT_PORT="${SOCKS_DIRECT_PORT:-1082}"
 SOCKS_VPN_PORT="${SOCKS_VPN_PORT:-1081}"
-VPN_UPSTREAM_SOCKS_PORT="${VPN_UPSTREAM_SOCKS_PORT:-15081}"
 VLESS_STATE_FILE="${VLESS_STATE_FILE:-/var/lib/dockervpn/vless-state.env}"
 
 VLESS_DIRECT_NAME="${VLESS_DIRECT_NAME:-dockervpn-vless-vps}"
 VLESS_VPN_NAME="${VLESS_VPN_NAME:-dockervpn-vless-vpn}"
 VLESS_DIRECT_UUID="${VLESS_DIRECT_UUID:-}"
 VLESS_VPN_UUID="${VLESS_VPN_UUID:-}"
+AWG_SOURCE_IPV4="${AWG_SOURCE_IPV4:-}"
+AWG_CONFIG="${AWG_CONFIG:-/config/awg0.conf}"
 
 VLESS_STATE_DIRECT_UUID=""
 VLESS_STATE_VPN_UUID=""
@@ -37,6 +38,29 @@ make_uuid() {
 make_short_id() {
   od -An -N8 -tx1 /dev/urandom | tr -d ' \n'
 }
+
+detect_awg_source_ipv4() {
+  local ip
+  ip="$(
+    awk -F= '
+      /^[[:space:]]*Address[[:space:]]*=/ {
+        print $2
+        exit
+      }
+    ' "${AWG_CONFIG}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -m1 -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/' | cut -d/ -f1
+  )"
+
+  [[ -n "${ip}" ]] || {
+    echo "failed to detect AWG source IPv4" >&2
+    exit 1
+  }
+
+  echo "${ip}"
+}
+
+if [[ -z "${AWG_SOURCE_IPV4}" ]]; then
+  AWG_SOURCE_IPV4="$(detect_awg_source_ipv4)"
+fi
 
 DIRECT_UUID="${VLESS_DIRECT_UUID:-${VLESS_STATE_DIRECT_UUID}}"
 if [[ -z "${DIRECT_UUID}" ]]; then
@@ -193,16 +217,11 @@ cat > /etc/xray/config.json <<JSON
     },
     {
       "tag": "vpn",
-      "protocol": "socks",
+      "protocol": "freedom",
       "settings": {
-        "servers": [
-          {
-            "address": "127.0.0.1",
-            "port": ${VPN_UPSTREAM_SOCKS_PORT}
-          }
-        ]
+        "domainStrategy": "UseIPv4"
       },
-      "targetStrategy": "UseIPv4"
+      "sendThrough": "${AWG_SOURCE_IPV4}"
     },
     {
       "tag": "block",

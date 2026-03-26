@@ -1,18 +1,36 @@
 services:
-  xray:
+  gateway:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        SERVER_HOST: ${SERVER_HOST}
-        VLESS_PORT: ${VLESS_PORT:-443}
-        VLESS_SNI: ${VLESS_SNI:-www.cloudflare.com}
-        VLESS_FP: ${VLESS_FP:-chrome}
-        VLESS_FLOW: ${VLESS_FLOW:-xtls-rprx-vision}
-        VLESS_NAME: ${VLESS_NAME:-dockervpn-vless}
-        VLESS_UUID: ${VLESS_UUID:-}
-        VLESS_SHORT_ID: ${VLESS_SHORT_ID:-}
-    container_name: dockervpn-xray
+    container_name: dockervpn-gateway
     restart: unless-stopped
     network_mode: host
-    command: ["xray", "run", "-config", "/etc/xray/config.json"]
+    userns_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      SERVER_HOST: ${SERVER_HOST}
+      VLESS_SNI: ${VLESS_SNI:-www.cloudflare.com}
+      VLESS_FP: ${VLESS_FP:-chrome}
+      VLESS_FLOW: ${VLESS_FLOW:-xtls-rprx-vision}
+      VLESS_SHORT_ID: ${VLESS_SHORT_ID:-}
+      VLESS_DIRECT_PORT: ${VLESS_DIRECT_PORT:-443}
+      VLESS_VPN_PORT: ${VLESS_VPN_PORT:-8443}
+      SOCKS_DIRECT_PORT: ${SOCKS_DIRECT_PORT:-1082}
+      SOCKS_VPN_PORT: ${SOCKS_VPN_PORT:-1081}
+      VLESS_DIRECT_NAME: ${VLESS_DIRECT_NAME:-dockervpn-vless-vps}
+      VLESS_VPN_NAME: ${VLESS_VPN_NAME:-dockervpn-vless-vpn}
+      VLESS_DIRECT_UUID: ${VLESS_DIRECT_UUID:-}
+      VLESS_VPN_UUID: ${VLESS_VPN_UUID:-}
+      AWG_CONFIG: /config/awg0.conf
+      AWG_INTERFACE: ${AWG_INTERFACE:-awg0}
+      AWG_ROUTE_TABLE: ${AWG_ROUTE_TABLE:-100}
+      AWG_ROUTE_MARK: ${AWG_ROUTE_MARK:-100}
+      VPN_UPSTREAM_SOCKS_PORT: ${VPN_UPSTREAM_SOCKS_PORT:-15081}
+      SOCKS_UPSTREAM_USER: ${SOCKS_UPSTREAM_USER:-awgproxy}
+      ENABLE_IPV6_TABLE: ${ENABLE_IPV6_TABLE:-1}
+    volumes:
+      - ./config:/config:ro

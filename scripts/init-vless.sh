@@ -23,14 +23,14 @@ fi
 
 cd "${ROOT_DIR}"
 
-echo "building image (config is generated during docker build)..."
+echo "building image..."
 if [[ "${FORCE}" == "--force" ]]; then
-  SERVER_HOST="${SERVER_HOST}" docker compose build --no-cache xray
+  SERVER_HOST="${SERVER_HOST}" docker compose build --no-cache gateway
 else
-  SERVER_HOST="${SERVER_HOST}" docker compose build xray
+  SERVER_HOST="${SERVER_HOST}" docker compose build gateway
 fi
 echo "starting container..."
-docker compose up -d xray
+docker compose up -d gateway
 echo
-echo "vless link:"
+echo "connection info:"
 "${ROOT_DIR}/scripts/vless-link.sh"

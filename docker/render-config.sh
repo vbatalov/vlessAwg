@@ -43,7 +43,7 @@ fi
 
 KEYS="$(xray x25519)"
 PRIVATE_KEY="$(printf '%s\n' "${KEYS}" | awk -F': *' '/^PrivateKey:/{print $2}')"
-PUBLIC_KEY="$(printf '%s\n' "${KEYS}" | awk -F': *' '/^PublicKey:/{print $2; exit}')"
+PUBLIC_KEY="$(printf '%s\n' "${KEYS}" | awk -F': *' '/^PublicKey:/{print $2; exit} /^Password \(PublicKey\):/{print $2; exit}')"
 
 if [[ -z "${PRIVATE_KEY}" || -z "${PUBLIC_KEY}" ]]; then
   echo "failed to parse x25519 output" >&2

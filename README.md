@@ -16,6 +16,8 @@
 - `VLESS`
 - `SOCKS`
 
+`VPN`-режим строго идет только через `awg0` (без fallback на прямой `VPS`).
+
 ## Файлы
 
 - `config/awg0.conf` — клиентский конфиг AmneziaWG
@@ -30,6 +32,12 @@ cp .env.example .env
 ```
 
 Проверить, что `config/awg0.conf` существует.
+
+На VPS должен быть включен:
+
+```bash
+sysctl -w net.ipv4.conf.all.src_valid_mark=1
+```
 
 ## Запуск
 
@@ -49,3 +57,14 @@ cp .env.example .env
 - `VLESS VPN` (выход через awg)
 - `SOCKS VPS`
 - `SOCKS VPN`
+
+## AWG watchdog
+
+Контейнер включает watchdog для `awg0`: при слишком старом handshake автоматически перезапускает AWG-стек и локальный VPN SOCKS.
+
+Параметры в `.env`:
+
+- `AWG_WATCHDOG_ENABLED`
+- `AWG_WATCHDOG_INTERVAL`
+- `AWG_WATCHDOG_STALE_SECONDS`
+- `AWG_WATCHDOG_FAIL_THRESHOLD`

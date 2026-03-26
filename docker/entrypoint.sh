@@ -8,6 +8,10 @@ AWG_ROUTE_MARK="${AWG_ROUTE_MARK:-100}"
 VPN_UPSTREAM_SOCKS_PORT="${VPN_UPSTREAM_SOCKS_PORT:-15081}"
 SOCKS_UPSTREAM_USER="${SOCKS_UPSTREAM_USER:-awgproxy}"
 ENABLE_IPV6_TABLE="${ENABLE_IPV6_TABLE:-1}"
+AWG_WATCHDOG_ENABLED="${AWG_WATCHDOG_ENABLED:-1}"
+AWG_WATCHDOG_INTERVAL="${AWG_WATCHDOG_INTERVAL:-15}"
+AWG_WATCHDOG_STALE_SECONDS="${AWG_WATCHDOG_STALE_SECONDS:-75}"
+AWG_WATCHDOG_FAIL_THRESHOLD="${AWG_WATCHDOG_FAIL_THRESHOLD:-3}"
 
 fail() {
   echo "fatal: $*" >&2
@@ -155,7 +159,60 @@ CFG
 }
 
 start_danted() {
+  pkill -x danted 2>/dev/null || true
   danted -N 1 -f /etc/danted-vpn.conf &
+}
+
+latest_handshake_age_seconds() {
+  local latest now
+  latest="$(
+    awg show "${AWG_INTERFACE}" latest-handshakes 2>/dev/null | awk 'NR==1{print $2}'
+  )"
+
+  if [[ -z "${latest}" || "${latest}" == "0" ]]; then
+    echo "999999"
+    return 0
+  fi
+
+  now="$(date +%s)"
+  echo "$((now - latest))"
+}
+
+restart_awg_stack() {
+  echo "watchdog: restarting ${AWG_INTERFACE} and vpn socks"
+  sanitize_awg_config
+  setup_awg_interface
+  setup_policy_routing
+  start_danted
+}
+
+start_awg_watchdog() {
+  if [[ "${AWG_WATCHDOG_ENABLED}" != "1" ]]; then
+    return 0
+  fi
+
+  (
+    set +e
+    local fail_count age
+    fail_count=0
+
+    while true; do
+      sleep "${AWG_WATCHDOG_INTERVAL}"
+      age="$(latest_handshake_age_seconds)"
+
+      if [[ "${age}" -ge "${AWG_WATCHDOG_STALE_SECONDS}" ]]; then
+        fail_count=$((fail_count + 1))
+        echo "watchdog: stale handshake ${age}s (${fail_count}/${AWG_WATCHDOG_FAIL_THRESHOLD})"
+      else
+        fail_count=0
+      fi
+
+      if [[ "${fail_count}" -ge "${AWG_WATCHDOG_FAIL_THRESHOLD}" ]]; then
+        restart_awg_stack
+        fail_count=0
+      fi
+    done
+  ) &
 }
 
 show_summary() {
@@ -164,6 +221,7 @@ show_summary() {
   echo "  awg interface: ${AWG_INTERFACE}"
   echo "  vpn upstream socks: 127.0.0.1:${VPN_UPSTREAM_SOCKS_PORT}"
   echo "  route table/mark: ${AWG_ROUTE_TABLE}/${AWG_ROUTE_MARK}"
+  echo "  watchdog: enabled=${AWG_WATCHDOG_ENABLED} interval=${AWG_WATCHDOG_INTERVAL}s stale=${AWG_WATCHDOG_STALE_SECONDS}s threshold=${AWG_WATCHDOG_FAIL_THRESHOLD}"
 }
 
 main() {
@@ -177,6 +235,7 @@ main() {
   setup_policy_routing
   render_danted_config
   start_danted
+  start_awg_watchdog
   /usr/local/bin/render-config.sh
   show_summary
   exec xray run -config /etc/xray/config.json

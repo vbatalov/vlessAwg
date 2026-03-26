@@ -1,0 +1,18 @@
+services:
+  xray:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVER_HOST: ${SERVER_HOST}
+        VLESS_PORT: ${VLESS_PORT:-443}
+        VLESS_SNI: ${VLESS_SNI:-www.cloudflare.com}
+        VLESS_FP: ${VLESS_FP:-chrome}
+        VLESS_FLOW: ${VLESS_FLOW:-xtls-rprx-vision}
+        VLESS_NAME: ${VLESS_NAME:-dockervpn-vless}
+        VLESS_UUID: ${VLESS_UUID:-}
+        VLESS_SHORT_ID: ${VLESS_SHORT_ID:-}
+    container_name: dockervpn-xray
+    restart: unless-stopped
+    network_mode: host
+    command: ["xray", "run", "-config", "/etc/xray/config.json"]

@@ -68,3 +68,5 @@ sysctl -w net.ipv4.conf.all.src_valid_mark=1
 - `AWG_WATCHDOG_INTERVAL`
 - `AWG_WATCHDOG_STALE_SECONDS`
 - `AWG_WATCHDOG_FAIL_THRESHOLD`
+- `AWG_MTU_OVERRIDE`
+- `AWG_TCP_MSS`

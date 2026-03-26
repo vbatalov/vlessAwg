@@ -12,6 +12,8 @@ AWG_WATCHDOG_ENABLED="${AWG_WATCHDOG_ENABLED:-1}"
 AWG_WATCHDOG_INTERVAL="${AWG_WATCHDOG_INTERVAL:-15}"
 AWG_WATCHDOG_STALE_SECONDS="${AWG_WATCHDOG_STALE_SECONDS:-75}"
 AWG_WATCHDOG_FAIL_THRESHOLD="${AWG_WATCHDOG_FAIL_THRESHOLD:-3}"
+AWG_MTU_OVERRIDE="${AWG_MTU_OVERRIDE:-}"
+AWG_TCP_MSS="${AWG_TCP_MSS:-1240}"
 
 fail() {
   echo "fatal: $*" >&2
@@ -111,7 +113,9 @@ setup_awg_interface() {
     }
   ' "${sanitized}")"
 
-  ip link set dev "${AWG_INTERFACE}" up mtu "${mtu_value:-1420}"
+  local target_mtu
+  target_mtu="${AWG_MTU_OVERRIDE:-${mtu_value:-1420}}"
+  ip link set dev "${AWG_INTERFACE}" up mtu "${target_mtu}"
 }
 
 setup_policy_routing() {
@@ -134,6 +138,8 @@ setup_policy_routing() {
 
   iptables -t mangle -D OUTPUT -m owner --uid-owner "${uid}" -j MARK --set-mark "${AWG_ROUTE_MARK}" 2>/dev/null || true
   iptables -t mangle -A OUTPUT -m owner --uid-owner "${uid}" -j MARK --set-mark "${AWG_ROUTE_MARK}"
+  iptables -t mangle -D OUTPUT -m owner --uid-owner "${uid}" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "${AWG_TCP_MSS}" 2>/dev/null || true
+  iptables -t mangle -A OUTPUT -m owner --uid-owner "${uid}" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "${AWG_TCP_MSS}"
 }
 
 render_danted_config() {
@@ -221,6 +227,8 @@ show_summary() {
   echo "  awg interface: ${AWG_INTERFACE}"
   echo "  vpn upstream socks: 127.0.0.1:${VPN_UPSTREAM_SOCKS_PORT}"
   echo "  route table/mark: ${AWG_ROUTE_TABLE}/${AWG_ROUTE_MARK}"
+  echo "  awg mtu override: ${AWG_MTU_OVERRIDE:-auto}"
+  echo "  awg tcp mss: ${AWG_TCP_MSS}"
   echo "  watchdog: enabled=${AWG_WATCHDOG_ENABLED} interval=${AWG_WATCHDOG_INTERVAL}s stale=${AWG_WATCHDOG_STALE_SECONDS}s threshold=${AWG_WATCHDOG_FAIL_THRESHOLD}"
 }
 

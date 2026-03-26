@@ -173,7 +173,8 @@ cat > /etc/xray/config.json <<JSON
             "port": ${VPN_UPSTREAM_SOCKS_PORT}
           }
         ]
-      }
+      },
+      "targetStrategy": "UseIPv4"
     },
     {
       "tag": "block",

@@ -1,84 +1,62 @@
 # DockerVPN Gateway (VLESS + SOCKS, VPS + VPN)
 
-Один контейнер поднимает:
+Проект поднимает один контейнер `gateway`:
 
-- `xray` (входы VLESS/SOCKS)
-- `AmneziaWG` клиент (`awg` + backend `amneziawg`/`amneziawg-go`)
+- `xray` (inbounds: VLESS + SOCKS)
+- `AmneziaWG` клиент (`awg`)
 
-Поддерживаются 2 режима в рамках одного проекта:
+Режимы выхода:
 
-- `VPS` (чистый внешний IP VPS)
-- `VPN` (выход через `awg0`)
+- `VPS` (прямой IP VPS)
+- `VPN` (строго через `awg0`, без fallback на прямой VPS)
 
-И 2 типа входа для каждого режима:
+## Быстрый запуск на новом VPS
 
-- `VLESS`
-- `SOCKS`
-
-`VPN`-режим строго идет только через `awg0` (без fallback на прямой `VPS`).
-Для `vless-vpn` и `socks-vpn` Xray использует `freedom` outbound с `sendThrough` адреса `awg0`.
-
-## Файлы
-
-- `config/awg0.conf` — клиентский конфиг AmneziaWG
-- `.env` — порты, хост, имена соединений
-- `docker-compose.yml` — сервис `gateway`
-
-## Подготовка
+1. Склонировать репозиторий.
+2. Положить приватный файл `config/awg0.conf` (он не хранится в git).
+3. Запустить:
 
 ```bash
-cp .env.example .env
-# заполнить SERVER_HOST
+sudo ./install.sh
 ```
 
-Проверить, что `config/awg0.conf` существует.
-
-На VPS должен быть включен:
+Если нужно явно задать IP сервера:
 
 ```bash
-sysctl -w net.ipv4.conf.all.src_valid_mark=1
-# для постоянного применения:
-# echo 'net.ipv4.conf.all.src_valid_mark=1' >/etc/sysctl.d/99-dockervpn.conf
-# sysctl --system
+sudo ./install.sh <SERVER_IP>
 ```
 
-Если используется `AWG_BACKEND=kernel`, модуль `amneziawg` должен быть установлен и загружен на VPS:
+Полная пересборка образа:
 
 ```bash
-modprobe amneziawg
+sudo ./install.sh <SERVER_IP> --force
 ```
 
-## Запуск
+## Что делает `install.sh`
 
-```bash
-./scripts/init-vless.sh
-```
+- ставит системные пакеты и Docker
+- включает/запускает Docker daemon
+- ставит `amneziawg` kernel module, грузит модуль
+- включает sysctl `net.ipv4.conf.all.src_valid_mark=1`
+- создает `.env` из `.env.example` (если его нет)
+- прописывает `SERVER_HOST`, `AWG_BACKEND=kernel`, `AWG_LISTEN_PORT=20000`
+- собирает и поднимает `gateway`
+- запускает debug:
+  - `docker compose ps`
+  - `docker compose logs --tail=80 gateway`
+  - вывод ссылок подключения
+  - проверка egress (`host`, `socks_vps`, `socks_vpn`)
+  - серия VPN probe-запросов
 
-## Получить все подключения
+## Получить ссылки подключений
 
 ```bash
 ./scripts/vless-link.sh
 ```
 
-Скрипт печатает:
+Скрипт выводит:
 
-- `VLESS VPS` (прямой выход через VPS)
-- `VLESS VPN` (выход через awg)
+- `VLESS VPS`
+- `VLESS VPN`
 - `SOCKS VPS`
 - `SOCKS VPN`
-
-## AWG watchdog
-
-Контейнер включает watchdog для `awg0`: при слишком старом handshake автоматически перезапускает AWG-стек.
-
-Параметры в `.env`:
-
-- `AWG_WATCHDOG_ENABLED`
-- `AWG_WATCHDOG_INTERVAL`
-- `AWG_WATCHDOG_STALE_SECONDS`
-- `AWG_WATCHDOG_FAIL_THRESHOLD`
-- `AWG_MTU_OVERRIDE`
-- `AWG_TCP_MSS`
-- `AWG_PERSISTENT_KEEPALIVE`
-- `AWG_BACKEND`
-- `AWG_LISTEN_PORT`

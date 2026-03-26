@@ -14,6 +14,7 @@ AWG_WATCHDOG_STALE_SECONDS="${AWG_WATCHDOG_STALE_SECONDS:-75}"
 AWG_WATCHDOG_FAIL_THRESHOLD="${AWG_WATCHDOG_FAIL_THRESHOLD:-3}"
 AWG_MTU_OVERRIDE="${AWG_MTU_OVERRIDE:-}"
 AWG_TCP_MSS="${AWG_TCP_MSS:-1240}"
+AWG_PERSISTENT_KEEPALIVE="${AWG_PERSISTENT_KEEPALIVE:-10}"
 
 fail() {
   echo "fatal: $*" >&2
@@ -92,6 +93,13 @@ setup_awg_interface() {
   LOG_LEVEL="${LOG_LEVEL:-info}" amneziawg-go "${AWG_INTERFACE}"
   awg-quick strip "${sanitized}" > "${stripped}"
   awg setconf "${AWG_INTERFACE}" "${stripped}"
+
+  if [[ -n "${AWG_PERSISTENT_KEEPALIVE}" && "${AWG_PERSISTENT_KEEPALIVE}" != "0" ]]; then
+    while IFS= read -r peer; do
+      [[ -n "${peer}" ]] || continue
+      awg set "${AWG_INTERFACE}" peer "${peer}" persistent-keepalive "${AWG_PERSISTENT_KEEPALIVE}"
+    done < <(awg show "${AWG_INTERFACE}" peers || true)
+  fi
 
   while IFS= read -r raw_address; do
     address="$(printf '%s' "${raw_address}" | trim)"
@@ -229,6 +237,7 @@ show_summary() {
   echo "  route table/mark: ${AWG_ROUTE_TABLE}/${AWG_ROUTE_MARK}"
   echo "  awg mtu override: ${AWG_MTU_OVERRIDE:-auto}"
   echo "  awg tcp mss: ${AWG_TCP_MSS}"
+  echo "  awg keepalive: ${AWG_PERSISTENT_KEEPALIVE}"
   echo "  watchdog: enabled=${AWG_WATCHDOG_ENABLED} interval=${AWG_WATCHDOG_INTERVAL}s stale=${AWG_WATCHDOG_STALE_SECONDS}s threshold=${AWG_WATCHDOG_FAIL_THRESHOLD}"
 }
 

@@ -38,6 +38,7 @@ services:
       AWG_WATCHDOG_FAIL_THRESHOLD: ${AWG_WATCHDOG_FAIL_THRESHOLD:-3}
       AWG_MTU_OVERRIDE: ${AWG_MTU_OVERRIDE:-1280}
       AWG_TCP_MSS: ${AWG_TCP_MSS:-1240}
+      AWG_PERSISTENT_KEEPALIVE: ${AWG_PERSISTENT_KEEPALIVE:-10}
     volumes:
       - ./config:/config:ro
       - gateway-state:/var/lib/dockervpn

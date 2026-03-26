@@ -17,8 +17,8 @@ services:
       VLESS_FP: ${VLESS_FP:-chrome}
       VLESS_FLOW: ${VLESS_FLOW:-xtls-rprx-vision}
       VLESS_SHORT_ID: ${VLESS_SHORT_ID:-}
-      VLESS_DIRECT_PORT: ${VLESS_DIRECT_PORT:-443}
-      VLESS_VPN_PORT: ${VLESS_VPN_PORT:-8443}
+      VLESS_DIRECT_PORT: ${VLESS_DIRECT_PORT:-8443}
+      VLESS_VPN_PORT: ${VLESS_VPN_PORT:-443}
       SOCKS_DIRECT_PORT: ${SOCKS_DIRECT_PORT:-1082}
       SOCKS_VPN_PORT: ${SOCKS_VPN_PORT:-1081}
       VLESS_DIRECT_NAME: ${VLESS_DIRECT_NAME:-dockervpn-vless-vps}
@@ -38,3 +38,7 @@ services:
       AWG_WATCHDOG_FAIL_THRESHOLD: ${AWG_WATCHDOG_FAIL_THRESHOLD:-3}
     volumes:
       - ./config:/config:ro
+      - gateway-state:/var/lib/dockervpn
+
+volumes:
+  gateway-state:

@@ -12,11 +12,23 @@ VLESS_VPN_PORT="${VLESS_VPN_PORT:-8443}"
 SOCKS_DIRECT_PORT="${SOCKS_DIRECT_PORT:-1082}"
 SOCKS_VPN_PORT="${SOCKS_VPN_PORT:-1081}"
 VPN_UPSTREAM_SOCKS_PORT="${VPN_UPSTREAM_SOCKS_PORT:-15081}"
+VLESS_STATE_FILE="${VLESS_STATE_FILE:-/var/lib/dockervpn/vless-state.env}"
 
 VLESS_DIRECT_NAME="${VLESS_DIRECT_NAME:-dockervpn-vless-vps}"
 VLESS_VPN_NAME="${VLESS_VPN_NAME:-dockervpn-vless-vpn}"
 VLESS_DIRECT_UUID="${VLESS_DIRECT_UUID:-}"
 VLESS_VPN_UUID="${VLESS_VPN_UUID:-}"
+
+VLESS_STATE_DIRECT_UUID=""
+VLESS_STATE_VPN_UUID=""
+VLESS_STATE_SHORT_ID=""
+VLESS_STATE_PRIVATE_KEY=""
+VLESS_STATE_PUBLIC_KEY=""
+
+if [[ -f "${VLESS_STATE_FILE}" ]]; then
+  # shellcheck disable=SC1090
+  . "${VLESS_STATE_FILE}"
+fi
 
 make_uuid() {
   xray uuid
@@ -26,30 +38,46 @@ make_short_id() {
   od -An -N8 -tx1 /dev/urandom | tr -d ' \n'
 }
 
-DIRECT_UUID="${VLESS_DIRECT_UUID}"
+DIRECT_UUID="${VLESS_DIRECT_UUID:-${VLESS_STATE_DIRECT_UUID}}"
 if [[ -z "${DIRECT_UUID}" ]]; then
   DIRECT_UUID="$(make_uuid)"
 fi
 
-VPN_UUID="${VLESS_VPN_UUID}"
+VPN_UUID="${VLESS_VPN_UUID:-${VLESS_STATE_VPN_UUID}}"
 if [[ -z "${VPN_UUID}" ]]; then
   VPN_UUID="$(make_uuid)"
 fi
 
-SHORT_ID="${VLESS_SHORT_ID}"
+SHORT_ID="${VLESS_SHORT_ID:-${VLESS_STATE_SHORT_ID}}"
 if [[ -z "${SHORT_ID}" ]]; then
   SHORT_ID="$(make_short_id)"
 fi
 
-KEYS="$(xray x25519)"
-PRIVATE_KEY="$(printf '%s\n' "${KEYS}" | awk -F': *' '/^PrivateKey:/{print $2}')"
-PUBLIC_KEY="$(printf '%s\n' "${KEYS}" | awk -F': *' '/^PublicKey:/{print $2; exit} /^Password \(PublicKey\):/{print $2; exit}')"
+PRIVATE_KEY="${VLESS_STATE_PRIVATE_KEY}"
+PUBLIC_KEY="${VLESS_STATE_PUBLIC_KEY}"
+if [[ -z "${PRIVATE_KEY}" || -z "${PUBLIC_KEY}" ]]; then
+  KEYS="$(xray x25519)"
+  PRIVATE_KEY="$(printf '%s\n' "${KEYS}" | awk -F': *' '/^PrivateKey:/{print $2}')"
+  PUBLIC_KEY="$(printf '%s\n' "${KEYS}" | awk -F': *' '/^PublicKey:/{print $2; exit} /^Password \(PublicKey\):/{print $2; exit}')"
+fi
 
 if [[ -z "${PRIVATE_KEY}" || -z "${PUBLIC_KEY}" ]]; then
   echo "failed to parse x25519 output" >&2
-  printf '%s\n' "${KEYS}" >&2
+  if [[ -n "${KEYS:-}" ]]; then
+    printf '%s\n' "${KEYS}" >&2
+  fi
   exit 1
 fi
+
+mkdir -p "$(dirname "${VLESS_STATE_FILE}")"
+cat > "${VLESS_STATE_FILE}" <<STATE
+VLESS_STATE_DIRECT_UUID="${DIRECT_UUID}"
+VLESS_STATE_VPN_UUID="${VPN_UUID}"
+VLESS_STATE_SHORT_ID="${SHORT_ID}"
+VLESS_STATE_PRIVATE_KEY="${PRIVATE_KEY}"
+VLESS_STATE_PUBLIC_KEY="${PUBLIC_KEY}"
+STATE
+chmod 600 "${VLESS_STATE_FILE}"
 
 cat > /etc/xray/config.json <<JSON
 {

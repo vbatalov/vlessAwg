@@ -39,6 +39,7 @@ sudo ./install.sh <SERVER_IP> --force
 - ставит `amneziawg` kernel module, грузит модуль
 - включает sysctl `net.ipv4.conf.all.src_valid_mark=1`
 - создает `.env` из `.env.example` (если его нет)
+- нормализует сетевые параметры AWG (`MTU/MSS/keepalive/watchdog`) на безопасные значения
 - прописывает `SERVER_HOST`, `AWG_BACKEND=kernel`, `AWG_LISTEN_PORT=20000`
 - собирает и поднимает `gateway`
 - запускает debug:

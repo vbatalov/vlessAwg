@@ -100,6 +100,41 @@ ensure_env_file() {
   fi
 }
 
+normalize_env_tuning() {
+  local mtu mss keepalive wd_interval wd_stale wd_threshold
+
+  mtu="$(read_env_value "AWG_MTU_OVERRIDE")"
+  mss="$(read_env_value "AWG_TCP_MSS")"
+  keepalive="$(read_env_value "AWG_PERSISTENT_KEEPALIVE")"
+  wd_interval="$(read_env_value "AWG_WATCHDOG_INTERVAL")"
+  wd_stale="$(read_env_value "AWG_WATCHDOG_STALE_SECONDS")"
+  wd_threshold="$(read_env_value "AWG_WATCHDOG_FAIL_THRESHOLD")"
+
+  if [[ -z "${mtu}" || "${mtu}" == "1376" ]]; then
+    write_env_value "AWG_MTU_OVERRIDE" "1200"
+  fi
+
+  if [[ -z "${mss}" || "${mss}" == "1336" ]]; then
+    write_env_value "AWG_TCP_MSS" "1160"
+  fi
+
+  if [[ -z "${keepalive}" || "${keepalive}" == "25" ]]; then
+    write_env_value "AWG_PERSISTENT_KEEPALIVE" "10"
+  fi
+
+  if [[ -z "${wd_interval}" || "${wd_interval}" == "15" ]]; then
+    write_env_value "AWG_WATCHDOG_INTERVAL" "5"
+  fi
+
+  if [[ -z "${wd_stale}" || "${wd_stale}" == "75" ]]; then
+    write_env_value "AWG_WATCHDOG_STALE_SECONDS" "20"
+  fi
+
+  if [[ -z "${wd_threshold}" || "${wd_threshold}" == "3" ]]; then
+    write_env_value "AWG_WATCHDOG_FAIL_THRESHOLD" "1"
+  fi
+}
+
 read_env_value() {
   local key="$1"
   awk -F= -v key="${key}" '$1 == key {print $2; exit}' "${ENV_FILE}" | tr -d '"' | tr -d "'"
@@ -193,6 +228,7 @@ main() {
   install_amneziawg_kernel_module
   configure_sysctl
   ensure_env_file
+  normalize_env_tuning
   ensure_awg_config
 
   local server_host

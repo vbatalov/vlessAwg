@@ -153,7 +153,7 @@ normalize_env_tuning() {
   fi
 
   if [[ -z "${probe_threshold}" ]]; then
-    write_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD" "2"
+    write_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD" "1"
   fi
 }
 

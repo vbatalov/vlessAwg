@@ -103,7 +103,7 @@ ensure_env_file() {
 }
 
 normalize_env_tuning() {
-  local mtu mss keepalive wd_interval wd_stale wd_threshold probe_enabled probe_url probe_timeout probe_threshold
+  local mtu mss keepalive wd_interval wd_stale wd_threshold probe_enabled probe_url probe_timeout probe_threshold vless_packet_encoding
 
   mtu="$(read_env_value "AWG_MTU_OVERRIDE")"
   mss="$(read_env_value "AWG_TCP_MSS")"
@@ -115,6 +115,7 @@ normalize_env_tuning() {
   probe_url="$(read_env_value "AWG_WATCHDOG_PROBE_URL")"
   probe_timeout="$(read_env_value "AWG_WATCHDOG_PROBE_TIMEOUT")"
   probe_threshold="$(read_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD")"
+  vless_packet_encoding="$(read_env_value "VLESS_PACKET_ENCODING")"
 
   if [[ -z "${mtu}" || "${mtu}" == "1376" ]]; then
     write_env_value "AWG_MTU_OVERRIDE" "1200"
@@ -154,6 +155,10 @@ normalize_env_tuning() {
 
   if [[ -z "${probe_threshold}" ]]; then
     write_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD" "1"
+  fi
+
+  if [[ -z "${vless_packet_encoding}" ]]; then
+    write_env_value "VLESS_PACKET_ENCODING" "xudp"
   fi
 }
 

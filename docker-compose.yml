@@ -16,6 +16,7 @@ services:
       VLESS_SNI: ${VLESS_SNI:-www.cloudflare.com}
       VLESS_FP: ${VLESS_FP:-chrome}
       VLESS_FLOW: ${VLESS_FLOW:-xtls-rprx-vision}
+      VLESS_PACKET_ENCODING: ${VLESS_PACKET_ENCODING:-xudp}
       VLESS_SHORT_ID: ${VLESS_SHORT_ID:-}
       VLESS_DIRECT_PORT: ${VLESS_DIRECT_PORT:-8443}
       VLESS_VPN_PORT: ${VLESS_VPN_PORT:-443}

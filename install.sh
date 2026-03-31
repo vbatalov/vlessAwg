@@ -63,7 +63,9 @@ ensure_packages() {
 
   if ! docker compose version >/dev/null 2>&1; then
     log "installing docker compose plugin"
-    apt-get install -y docker-compose-plugin
+    if ! apt-get install -y docker-compose-plugin; then
+      apt-get install -y docker-compose-v2
+    fi
   fi
 }
 

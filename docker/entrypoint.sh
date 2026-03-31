@@ -7,12 +7,13 @@ AWG_ROUTE_TABLE="${AWG_ROUTE_TABLE:-100}"
 ENABLE_IPV6_TABLE="${ENABLE_IPV6_TABLE:-1}"
 AWG_WATCHDOG_ENABLED="${AWG_WATCHDOG_ENABLED:-1}"
 AWG_WATCHDOG_INTERVAL="${AWG_WATCHDOG_INTERVAL:-5}"
-AWG_WATCHDOG_STALE_SECONDS="${AWG_WATCHDOG_STALE_SECONDS:-20}"
-AWG_WATCHDOG_FAIL_THRESHOLD="${AWG_WATCHDOG_FAIL_THRESHOLD:-1}"
-AWG_WATCHDOG_PROBE_ENABLED="${AWG_WATCHDOG_PROBE_ENABLED:-1}"
+AWG_WATCHDOG_STALE_SECONDS="${AWG_WATCHDOG_STALE_SECONDS:-45}"
+AWG_WATCHDOG_FAIL_THRESHOLD="${AWG_WATCHDOG_FAIL_THRESHOLD:-2}"
+AWG_WATCHDOG_RESTART_COOLDOWN="${AWG_WATCHDOG_RESTART_COOLDOWN:-25}"
+AWG_WATCHDOG_PROBE_ENABLED="${AWG_WATCHDOG_PROBE_ENABLED:-0}"
 AWG_WATCHDOG_PROBE_URL="${AWG_WATCHDOG_PROBE_URL:-http://1.1.1.1}"
 AWG_WATCHDOG_PROBE_TIMEOUT="${AWG_WATCHDOG_PROBE_TIMEOUT:-6}"
-AWG_WATCHDOG_PROBE_FAIL_THRESHOLD="${AWG_WATCHDOG_PROBE_FAIL_THRESHOLD:-1}"
+AWG_WATCHDOG_PROBE_FAIL_THRESHOLD="${AWG_WATCHDOG_PROBE_FAIL_THRESHOLD:-6}"
 AWG_MTU_OVERRIDE="${AWG_MTU_OVERRIDE:-}"
 AWG_TCP_MSS="${AWG_TCP_MSS:-1160}"
 AWG_PERSISTENT_KEEPALIVE="${AWG_PERSISTENT_KEEPALIVE:-10}"
@@ -237,9 +238,10 @@ start_awg_watchdog() {
 
   (
     set +e
-    local fail_count probe_fail_count age
+    local fail_count probe_fail_count age last_restart_ts now
     fail_count=0
     probe_fail_count=0
+    last_restart_ts=0
 
     while true; do
       sleep "${AWG_WATCHDOG_INTERVAL}"
@@ -262,9 +264,15 @@ start_awg_watchdog() {
       fi
 
       if [[ "${fail_count}" -ge "${AWG_WATCHDOG_FAIL_THRESHOLD}" || "${probe_fail_count}" -ge "${AWG_WATCHDOG_PROBE_FAIL_THRESHOLD}" ]]; then
-        restart_awg_stack
-        fail_count=0
-        probe_fail_count=0
+        now="$(date +%s)"
+        if (( now - last_restart_ts < AWG_WATCHDOG_RESTART_COOLDOWN )); then
+          echo "watchdog: restart skipped by cooldown ($((now - last_restart_ts))s/${AWG_WATCHDOG_RESTART_COOLDOWN}s)"
+        else
+          restart_awg_stack
+          last_restart_ts="${now}"
+          fail_count=0
+          probe_fail_count=0
+        fi
       fi
     done
   ) &
@@ -283,6 +291,7 @@ show_summary() {
   echo "  awg tcp mss: ${AWG_TCP_MSS}"
   echo "  awg keepalive: ${AWG_PERSISTENT_KEEPALIVE}"
   echo "  watchdog: enabled=${AWG_WATCHDOG_ENABLED} interval=${AWG_WATCHDOG_INTERVAL}s stale=${AWG_WATCHDOG_STALE_SECONDS}s threshold=${AWG_WATCHDOG_FAIL_THRESHOLD}"
+  echo "  watchdog cooldown: ${AWG_WATCHDOG_RESTART_COOLDOWN}s"
   echo "  watchdog probe: enabled=${AWG_WATCHDOG_PROBE_ENABLED} url=${AWG_WATCHDOG_PROBE_URL} timeout=${AWG_WATCHDOG_PROBE_TIMEOUT}s threshold=${AWG_WATCHDOG_PROBE_FAIL_THRESHOLD}"
 }
 

@@ -103,7 +103,7 @@ ensure_env_file() {
 }
 
 normalize_env_tuning() {
-  local mtu mss keepalive wd_interval wd_stale wd_threshold probe_enabled probe_url probe_timeout probe_threshold vless_packet_encoding
+  local mtu mss keepalive wd_interval wd_stale wd_threshold wd_cooldown probe_enabled probe_url probe_timeout probe_threshold vless_packet_encoding
 
   mtu="$(read_env_value "AWG_MTU_OVERRIDE")"
   mss="$(read_env_value "AWG_TCP_MSS")"
@@ -111,6 +111,7 @@ normalize_env_tuning() {
   wd_interval="$(read_env_value "AWG_WATCHDOG_INTERVAL")"
   wd_stale="$(read_env_value "AWG_WATCHDOG_STALE_SECONDS")"
   wd_threshold="$(read_env_value "AWG_WATCHDOG_FAIL_THRESHOLD")"
+  wd_cooldown="$(read_env_value "AWG_WATCHDOG_RESTART_COOLDOWN")"
   probe_enabled="$(read_env_value "AWG_WATCHDOG_PROBE_ENABLED")"
   probe_url="$(read_env_value "AWG_WATCHDOG_PROBE_URL")"
   probe_timeout="$(read_env_value "AWG_WATCHDOG_PROBE_TIMEOUT")"
@@ -133,16 +134,20 @@ normalize_env_tuning() {
     write_env_value "AWG_WATCHDOG_INTERVAL" "5"
   fi
 
-  if [[ -z "${wd_stale}" || "${wd_stale}" == "75" ]]; then
-    write_env_value "AWG_WATCHDOG_STALE_SECONDS" "20"
+  if [[ -z "${wd_stale}" || "${wd_stale}" == "20" || "${wd_stale}" == "75" ]]; then
+    write_env_value "AWG_WATCHDOG_STALE_SECONDS" "45"
   fi
 
-  if [[ -z "${wd_threshold}" || "${wd_threshold}" == "3" ]]; then
-    write_env_value "AWG_WATCHDOG_FAIL_THRESHOLD" "1"
+  if [[ -z "${wd_threshold}" || "${wd_threshold}" == "1" || "${wd_threshold}" == "3" ]]; then
+    write_env_value "AWG_WATCHDOG_FAIL_THRESHOLD" "2"
   fi
 
-  if [[ -z "${probe_enabled}" ]]; then
-    write_env_value "AWG_WATCHDOG_PROBE_ENABLED" "1"
+  if [[ -z "${wd_cooldown}" ]]; then
+    write_env_value "AWG_WATCHDOG_RESTART_COOLDOWN" "25"
+  fi
+
+  if [[ -z "${probe_enabled}" || "${probe_enabled}" == "1" ]]; then
+    write_env_value "AWG_WATCHDOG_PROBE_ENABLED" "0"
   fi
 
   if [[ -z "${probe_url}" ]]; then
@@ -153,8 +158,8 @@ normalize_env_tuning() {
     write_env_value "AWG_WATCHDOG_PROBE_TIMEOUT" "6"
   fi
 
-  if [[ -z "${probe_threshold}" ]]; then
-    write_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD" "1"
+  if [[ -z "${probe_threshold}" || "${probe_threshold}" == "1" ]]; then
+    write_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD" "6"
   fi
 
   if [[ -z "${vless_packet_encoding}" ]]; then

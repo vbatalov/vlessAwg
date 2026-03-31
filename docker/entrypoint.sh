@@ -6,12 +6,16 @@ AWG_INTERFACE="${AWG_INTERFACE:-awg0}"
 AWG_ROUTE_TABLE="${AWG_ROUTE_TABLE:-100}"
 ENABLE_IPV6_TABLE="${ENABLE_IPV6_TABLE:-1}"
 AWG_WATCHDOG_ENABLED="${AWG_WATCHDOG_ENABLED:-1}"
-AWG_WATCHDOG_INTERVAL="${AWG_WATCHDOG_INTERVAL:-15}"
-AWG_WATCHDOG_STALE_SECONDS="${AWG_WATCHDOG_STALE_SECONDS:-75}"
-AWG_WATCHDOG_FAIL_THRESHOLD="${AWG_WATCHDOG_FAIL_THRESHOLD:-3}"
+AWG_WATCHDOG_INTERVAL="${AWG_WATCHDOG_INTERVAL:-5}"
+AWG_WATCHDOG_STALE_SECONDS="${AWG_WATCHDOG_STALE_SECONDS:-20}"
+AWG_WATCHDOG_FAIL_THRESHOLD="${AWG_WATCHDOG_FAIL_THRESHOLD:-1}"
+AWG_WATCHDOG_PROBE_ENABLED="${AWG_WATCHDOG_PROBE_ENABLED:-1}"
+AWG_WATCHDOG_PROBE_URL="${AWG_WATCHDOG_PROBE_URL:-http://1.1.1.1}"
+AWG_WATCHDOG_PROBE_TIMEOUT="${AWG_WATCHDOG_PROBE_TIMEOUT:-6}"
+AWG_WATCHDOG_PROBE_FAIL_THRESHOLD="${AWG_WATCHDOG_PROBE_FAIL_THRESHOLD:-2}"
 AWG_MTU_OVERRIDE="${AWG_MTU_OVERRIDE:-}"
-AWG_TCP_MSS="${AWG_TCP_MSS:-1240}"
-AWG_PERSISTENT_KEEPALIVE="${AWG_PERSISTENT_KEEPALIVE:-25}"
+AWG_TCP_MSS="${AWG_TCP_MSS:-1160}"
+AWG_PERSISTENT_KEEPALIVE="${AWG_PERSISTENT_KEEPALIVE:-10}"
 AWG_BACKEND="${AWG_BACKEND:-auto}"
 AWG_LISTEN_PORT="${AWG_LISTEN_PORT:-}"
 
@@ -34,6 +38,7 @@ require_tools() {
   command -v xray >/dev/null || fail "xray not found"
   command -v ip >/dev/null || fail "ip command not found"
   command -v iptables >/dev/null || fail "iptables not found"
+  command -v curl >/dev/null || fail "curl not found"
 
   if [[ "${AWG_BACKEND}" == "userspace" ]]; then
     command -v amneziawg-go >/dev/null || fail "amneziawg-go not found"
@@ -214,6 +219,10 @@ latest_handshake_age_seconds() {
   echo "$((now - latest))"
 }
 
+awg_probe_connectivity() {
+  curl -4 -fsS --max-time "${AWG_WATCHDOG_PROBE_TIMEOUT}" --interface "${AWG_INTERFACE}" "${AWG_WATCHDOG_PROBE_URL}" -o /dev/null
+}
+
 restart_awg_stack() {
   echo "watchdog: restarting ${AWG_INTERFACE}"
   sanitize_awg_config
@@ -228,8 +237,9 @@ start_awg_watchdog() {
 
   (
     set +e
-    local fail_count age
+    local fail_count probe_fail_count age
     fail_count=0
+    probe_fail_count=0
 
     while true; do
       sleep "${AWG_WATCHDOG_INTERVAL}"
@@ -242,9 +252,19 @@ start_awg_watchdog() {
         fail_count=0
       fi
 
-      if [[ "${fail_count}" -ge "${AWG_WATCHDOG_FAIL_THRESHOLD}" ]]; then
+      if [[ "${AWG_WATCHDOG_PROBE_ENABLED}" == "1" ]]; then
+        if awg_probe_connectivity; then
+          probe_fail_count=0
+        else
+          probe_fail_count=$((probe_fail_count + 1))
+          echo "watchdog: probe failed (${probe_fail_count}/${AWG_WATCHDOG_PROBE_FAIL_THRESHOLD})"
+        fi
+      fi
+
+      if [[ "${fail_count}" -ge "${AWG_WATCHDOG_FAIL_THRESHOLD}" || "${probe_fail_count}" -ge "${AWG_WATCHDOG_PROBE_FAIL_THRESHOLD}" ]]; then
         restart_awg_stack
         fail_count=0
+        probe_fail_count=0
       fi
     done
   ) &
@@ -263,6 +283,7 @@ show_summary() {
   echo "  awg tcp mss: ${AWG_TCP_MSS}"
   echo "  awg keepalive: ${AWG_PERSISTENT_KEEPALIVE}"
   echo "  watchdog: enabled=${AWG_WATCHDOG_ENABLED} interval=${AWG_WATCHDOG_INTERVAL}s stale=${AWG_WATCHDOG_STALE_SECONDS}s threshold=${AWG_WATCHDOG_FAIL_THRESHOLD}"
+  echo "  watchdog probe: enabled=${AWG_WATCHDOG_PROBE_ENABLED} url=${AWG_WATCHDOG_PROBE_URL} timeout=${AWG_WATCHDOG_PROBE_TIMEOUT}s threshold=${AWG_WATCHDOG_PROBE_FAIL_THRESHOLD}"
 }
 
 main() {

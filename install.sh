@@ -103,7 +103,7 @@ ensure_env_file() {
 }
 
 normalize_env_tuning() {
-  local mtu mss keepalive wd_interval wd_stale wd_threshold
+  local mtu mss keepalive wd_interval wd_stale wd_threshold probe_enabled probe_url probe_timeout probe_threshold
 
   mtu="$(read_env_value "AWG_MTU_OVERRIDE")"
   mss="$(read_env_value "AWG_TCP_MSS")"
@@ -111,6 +111,10 @@ normalize_env_tuning() {
   wd_interval="$(read_env_value "AWG_WATCHDOG_INTERVAL")"
   wd_stale="$(read_env_value "AWG_WATCHDOG_STALE_SECONDS")"
   wd_threshold="$(read_env_value "AWG_WATCHDOG_FAIL_THRESHOLD")"
+  probe_enabled="$(read_env_value "AWG_WATCHDOG_PROBE_ENABLED")"
+  probe_url="$(read_env_value "AWG_WATCHDOG_PROBE_URL")"
+  probe_timeout="$(read_env_value "AWG_WATCHDOG_PROBE_TIMEOUT")"
+  probe_threshold="$(read_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD")"
 
   if [[ -z "${mtu}" || "${mtu}" == "1376" ]]; then
     write_env_value "AWG_MTU_OVERRIDE" "1200"
@@ -134,6 +138,22 @@ normalize_env_tuning() {
 
   if [[ -z "${wd_threshold}" || "${wd_threshold}" == "3" ]]; then
     write_env_value "AWG_WATCHDOG_FAIL_THRESHOLD" "1"
+  fi
+
+  if [[ -z "${probe_enabled}" ]]; then
+    write_env_value "AWG_WATCHDOG_PROBE_ENABLED" "1"
+  fi
+
+  if [[ -z "${probe_url}" ]]; then
+    write_env_value "AWG_WATCHDOG_PROBE_URL" "http://1.1.1.1"
+  fi
+
+  if [[ -z "${probe_timeout}" ]]; then
+    write_env_value "AWG_WATCHDOG_PROBE_TIMEOUT" "6"
+  fi
+
+  if [[ -z "${probe_threshold}" ]]; then
+    write_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD" "2"
   fi
 }
 

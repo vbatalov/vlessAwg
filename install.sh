@@ -267,7 +267,7 @@ main() {
   server_host="$(resolve_server_host)"
   write_env_value "SERVER_HOST" "${server_host}"
   write_env_value "AWG_BACKEND" "kernel"
-  write_env_value "AWG_LISTEN_PORT" "20000"
+  write_env_value "AWG_LISTEN_PORT" ""
 
   log "using SERVER_HOST=${server_host}"
   build_and_start "${server_host}"

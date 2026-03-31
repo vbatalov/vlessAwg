@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 ENV_EXAMPLE="${ROOT_DIR}/.env.example"
-AWG_CONFIG="${ROOT_DIR}/config/awg0.conf"
+TRUSTCHANNEL_CONFIG="${ROOT_DIR}/config/trustchannel-client.toml"
 
 FORCE_REBUILD=0
 SERVER_HOST_ARG=""
@@ -48,9 +48,7 @@ ensure_packages() {
     curl \
     ca-certificates \
     gnupg2 \
-    software-properties-common \
-    python3-launchpadlib \
-    linux-headers-"$(uname -r)"
+    software-properties-common
 
   if command -v docker >/dev/null 2>&1; then
     log "docker already installed, skipping engine install"
@@ -74,96 +72,9 @@ enable_docker() {
   systemctl enable --now docker
 }
 
-install_amneziawg_kernel_module() {
-  if modinfo amneziawg >/dev/null 2>&1; then
-    log "amneziawg module already installed"
-  else
-    log "installing amneziawg kernel module"
-    add-apt-repository -y ppa:amnezia/ppa
-    apt-get update -y
-    apt-get install -y amneziawg
-  fi
-
-  echo "amneziawg" > /etc/modules-load.d/amneziawg.conf
-  modprobe amneziawg
-}
-
-configure_sysctl() {
-  log "configuring sysctl for policy routing"
-  cat > /etc/sysctl.d/99-dockervpn.conf <<'EOF'
-net.ipv4.conf.all.src_valid_mark=1
-EOF
-  sysctl --system >/dev/null
-}
-
 ensure_env_file() {
   if [[ ! -f "${ENV_FILE}" ]]; then
     cp "${ENV_EXAMPLE}" "${ENV_FILE}"
-  fi
-}
-
-normalize_env_tuning() {
-  local mtu mss keepalive wd_interval wd_stale wd_threshold wd_cooldown probe_enabled probe_url probe_timeout probe_threshold vless_packet_encoding
-
-  mtu="$(read_env_value "AWG_MTU_OVERRIDE")"
-  mss="$(read_env_value "AWG_TCP_MSS")"
-  keepalive="$(read_env_value "AWG_PERSISTENT_KEEPALIVE")"
-  wd_interval="$(read_env_value "AWG_WATCHDOG_INTERVAL")"
-  wd_stale="$(read_env_value "AWG_WATCHDOG_STALE_SECONDS")"
-  wd_threshold="$(read_env_value "AWG_WATCHDOG_FAIL_THRESHOLD")"
-  wd_cooldown="$(read_env_value "AWG_WATCHDOG_RESTART_COOLDOWN")"
-  probe_enabled="$(read_env_value "AWG_WATCHDOG_PROBE_ENABLED")"
-  probe_url="$(read_env_value "AWG_WATCHDOG_PROBE_URL")"
-  probe_timeout="$(read_env_value "AWG_WATCHDOG_PROBE_TIMEOUT")"
-  probe_threshold="$(read_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD")"
-  vless_packet_encoding="$(read_env_value "VLESS_PACKET_ENCODING")"
-
-  if [[ -z "${mtu}" || "${mtu}" == "1376" || "${mtu}" == "1200" ]]; then
-    write_env_value "AWG_MTU_OVERRIDE" "1000"
-  fi
-
-  if [[ -z "${mss}" || "${mss}" == "1336" || "${mss}" == "1160" ]]; then
-    write_env_value "AWG_TCP_MSS" "960"
-  fi
-
-  if [[ -z "${keepalive}" || "${keepalive}" == "25" || "${keepalive}" == "10" ]]; then
-    write_env_value "AWG_PERSISTENT_KEEPALIVE" "5"
-  fi
-
-  if [[ -z "${wd_interval}" || "${wd_interval}" == "15" ]]; then
-    write_env_value "AWG_WATCHDOG_INTERVAL" "5"
-  fi
-
-  if [[ -z "${wd_stale}" || "${wd_stale}" == "20" || "${wd_stale}" == "75" ]]; then
-    write_env_value "AWG_WATCHDOG_STALE_SECONDS" "45"
-  fi
-
-  if [[ -z "${wd_threshold}" || "${wd_threshold}" == "1" || "${wd_threshold}" == "3" ]]; then
-    write_env_value "AWG_WATCHDOG_FAIL_THRESHOLD" "2"
-  fi
-
-  if [[ -z "${wd_cooldown}" ]]; then
-    write_env_value "AWG_WATCHDOG_RESTART_COOLDOWN" "25"
-  fi
-
-  if [[ -z "${probe_enabled}" || "${probe_enabled}" == "1" ]]; then
-    write_env_value "AWG_WATCHDOG_PROBE_ENABLED" "0"
-  fi
-
-  if [[ -z "${probe_url}" ]]; then
-    write_env_value "AWG_WATCHDOG_PROBE_URL" "http://1.1.1.1"
-  fi
-
-  if [[ -z "${probe_timeout}" ]]; then
-    write_env_value "AWG_WATCHDOG_PROBE_TIMEOUT" "6"
-  fi
-
-  if [[ -z "${probe_threshold}" || "${probe_threshold}" == "1" ]]; then
-    write_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD" "6"
-  fi
-
-  if [[ -z "${vless_packet_encoding}" ]]; then
-    write_env_value "VLESS_PACKET_ENCODING" "xudp"
   fi
 }
 
@@ -179,6 +90,41 @@ write_env_value() {
     sed -i "s|^${key}=.*|${key}=${value}|" "${ENV_FILE}"
   else
     echo "${key}=${value}" >> "${ENV_FILE}"
+  fi
+}
+
+normalize_env_defaults() {
+  local vless_packet_encoding trust_socks_port direct_port trust_port direct_name trust_name
+
+  vless_packet_encoding="$(read_env_value "VLESS_PACKET_ENCODING")"
+  trust_socks_port="$(read_env_value "TRUSTCHANNEL_UPSTREAM_SOCKS_PORT")"
+  direct_port="$(read_env_value "VLESS_DIRECT_PORT")"
+  trust_port="$(read_env_value "VLESS_TRUST_PORT")"
+  direct_name="$(read_env_value "VLESS_DIRECT_NAME")"
+  trust_name="$(read_env_value "VLESS_TRUST_NAME")"
+
+  if [[ -z "${vless_packet_encoding}" ]]; then
+    write_env_value "VLESS_PACKET_ENCODING" "xudp"
+  fi
+
+  if [[ -z "${trust_socks_port}" ]]; then
+    write_env_value "TRUSTCHANNEL_UPSTREAM_SOCKS_PORT" "15080"
+  fi
+
+  if [[ -z "${direct_port}" ]]; then
+    write_env_value "VLESS_DIRECT_PORT" "8443"
+  fi
+
+  if [[ -z "${trust_port}" ]]; then
+    write_env_value "VLESS_TRUST_PORT" "443"
+  fi
+
+  if [[ -z "${direct_name}" ]]; then
+    write_env_value "VLESS_DIRECT_NAME" "dockervpn-vless-vps"
+  fi
+
+  if [[ -z "${trust_name}" ]]; then
+    write_env_value "VLESS_TRUST_NAME" "dockervpn-vless-trustchannel"
   fi
 }
 
@@ -211,9 +157,9 @@ resolve_server_host() {
   echo "${current}"
 }
 
-ensure_awg_config() {
-  [[ -f "${AWG_CONFIG}" ]] || fail "missing ${AWG_CONFIG}"
-  chmod 600 "${AWG_CONFIG}"
+ensure_trustchannel_config() {
+  [[ -f "${TRUSTCHANNEL_CONFIG}" ]] || fail "missing ${TRUSTCHANNEL_CONFIG}"
+  chmod 600 "${TRUSTCHANNEL_CONFIG}"
 }
 
 build_and_start() {
@@ -230,6 +176,10 @@ build_and_start() {
 }
 
 print_debug() {
+  local tc_port i out
+  tc_port="$(read_env_value "TRUSTCHANNEL_UPSTREAM_SOCKS_PORT")"
+  [[ -n "${tc_port}" ]] || tc_port="15080"
+
   log "debug: docker status"
   docker compose ps
 
@@ -241,13 +191,12 @@ print_debug() {
 
   log "debug: egress checks"
   echo "host_ip=$(curl -4 -fsS --max-time 12 https://ifconfig.me/ip || echo FAIL)"
-  echo "socks_vps=$(curl -4 -fsS --max-time 12 --socks5-hostname 127.0.0.1:1082 https://ifconfig.me/ip || echo FAIL)"
-  echo "socks_vpn=$(curl -4 -fsS --max-time 20 --socks5-hostname 127.0.0.1:1081 https://ifconfig.me/ip || echo FAIL)"
+  echo "container_direct_ip=$(docker compose exec -T gateway sh -lc 'curl -4 -fsS --max-time 12 https://ifconfig.me/ip' || echo FAIL)"
+  echo "container_trust_ip=$(docker compose exec -T gateway sh -lc \"curl -4 -fsS --max-time 20 --socks5-hostname 127.0.0.1:${tc_port} https://ifconfig.me/ip\" || echo FAIL)"
 
-  local i out
-  for i in $(seq 1 12); do
-    out="$(curl -4 -s --max-time 8 --socks5 127.0.0.1:1081 http://1.1.1.1 -o /dev/null -w "%{http_code}" || echo FAIL)"
-    printf "vpn_probe_%02d=%s\n" "${i}" "${out}"
+  for i in $(seq 1 8); do
+    out="$(docker compose exec -T gateway sh -lc \"curl -4 -s --max-time 10 --socks5-hostname 127.0.0.1:${tc_port} -o /dev/null -w '%{http_code}' https://www.google.com/generate_204\" || echo FAIL)"
+    printf "trust_probe_%02d=%s\n" "${i}" "${out}"
     sleep 1
   done
 }
@@ -257,17 +206,13 @@ main() {
   require_ubuntu
   ensure_packages
   enable_docker
-  install_amneziawg_kernel_module
-  configure_sysctl
   ensure_env_file
-  normalize_env_tuning
-  ensure_awg_config
+  normalize_env_defaults
+  ensure_trustchannel_config
 
   local server_host
   server_host="$(resolve_server_host)"
   write_env_value "SERVER_HOST" "${server_host}"
-  write_env_value "AWG_BACKEND" "kernel"
-  write_env_value "AWG_LISTEN_PORT" ""
 
   log "using SERVER_HOST=${server_host}"
   build_and_start "${server_host}"

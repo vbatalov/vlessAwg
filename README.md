@@ -1,19 +1,21 @@
-# DockerVPN Gateway (VLESS + SOCKS, VPS + VPN)
+# DockerVPN Gateway (VLESS direct + VLESS TrustChannel)
 
 Проект поднимает один контейнер `gateway`:
 
-- `xray` (inbounds: VLESS + SOCKS)
-- `AmneziaWG` клиент (`awg`)
+- `xray` (только VLESS inbounds)
+- `trusttunnel_client` (внутренний upstream для TrustChannel)
 
-Режимы выхода:
+Поддерживаются 2 режима подключения:
 
-- `VPS` (прямой IP VPS)
-- `VPN` (строго через `awg0`, без fallback на прямой VPS)
+- `VLESS VPS` -> `MAC -> VPS -> Internet`
+- `VLESS TrustChannel` -> `MAC -> VPS -> TrustChannel -> Internet`
+
+SOCKS5 для внешних клиентов отключен (не публикуется).
 
 ## Быстрый запуск на новом VPS
 
 1. Склонировать репозиторий.
-2. Положить приватный файл `config/awg0.conf` (он не хранится в git).
+2. Убедиться, что файл `config/trustchannel-client.toml` присутствует.
 3. Запустить:
 
 ```bash
@@ -36,18 +38,17 @@ sudo ./install.sh <SERVER_IP> --force
 
 - ставит системные пакеты и Docker
 - включает/запускает Docker daemon
-- ставит `amneziawg` kernel module, грузит модуль
-- включает sysctl `net.ipv4.conf.all.src_valid_mark=1`
 - создает `.env` из `.env.example` (если его нет)
-- нормализует сетевые параметры AWG (`MTU/MSS/keepalive/watchdog`) на безопасные значения
-- прописывает `SERVER_HOST`, `AWG_BACKEND=kernel`, `AWG_LISTEN_PORT=20000`
+- нормализует дефолты VLESS/TrustChannel
+- проверяет `config/trustchannel-client.toml`
+- прописывает `SERVER_HOST`
 - собирает и поднимает `gateway`
 - запускает debug:
   - `docker compose ps`
   - `docker compose logs --tail=80 gateway`
   - вывод ссылок подключения
-  - проверка egress (`host`, `socks_vps`, `socks_vpn`)
-  - серия VPN probe-запросов
+  - проверка egress (`host_ip`, `container_direct_ip`, `container_trust_ip`)
+  - серия `trust_probe` через внутренний TrustChannel SOCKS
 
 ## Получить ссылки подключений
 
@@ -58,6 +59,4 @@ sudo ./install.sh <SERVER_IP> --force
 Скрипт выводит:
 
 - `VLESS VPS`
-- `VLESS VPN`
-- `SOCKS VPS`
-- `SOCKS VPN`
+- `VLESS TrustChannel`

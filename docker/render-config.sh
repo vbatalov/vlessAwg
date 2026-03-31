@@ -9,20 +9,17 @@ VLESS_PACKET_ENCODING="${VLESS_PACKET_ENCODING:-xudp}"
 VLESS_SHORT_ID="${VLESS_SHORT_ID:-}"
 
 VLESS_DIRECT_PORT="${VLESS_DIRECT_PORT:-8443}"
-VLESS_VPN_PORT="${VLESS_VPN_PORT:-443}"
-SOCKS_DIRECT_PORT="${SOCKS_DIRECT_PORT:-1082}"
-SOCKS_VPN_PORT="${SOCKS_VPN_PORT:-1081}"
+VLESS_TRUST_PORT="${VLESS_TRUST_PORT:-443}"
 VLESS_STATE_FILE="${VLESS_STATE_FILE:-/var/lib/dockervpn/vless-state.env}"
 
 VLESS_DIRECT_NAME="${VLESS_DIRECT_NAME:-dockervpn-vless-vps}"
-VLESS_VPN_NAME="${VLESS_VPN_NAME:-dockervpn-vless-vpn}"
+VLESS_TRUST_NAME="${VLESS_TRUST_NAME:-dockervpn-vless-trustchannel}"
 VLESS_DIRECT_UUID="${VLESS_DIRECT_UUID:-}"
-VLESS_VPN_UUID="${VLESS_VPN_UUID:-}"
-AWG_SOURCE_IPV4="${AWG_SOURCE_IPV4:-}"
-AWG_CONFIG="${AWG_CONFIG:-/config/awg0.conf}"
+VLESS_TRUST_UUID="${VLESS_TRUST_UUID:-}"
+TRUSTCHANNEL_UPSTREAM_SOCKS_PORT="${TRUSTCHANNEL_UPSTREAM_SOCKS_PORT:-15080}"
 
 VLESS_STATE_DIRECT_UUID=""
-VLESS_STATE_VPN_UUID=""
+VLESS_STATE_TRUST_UUID=""
 VLESS_STATE_SHORT_ID=""
 VLESS_STATE_PRIVATE_KEY=""
 VLESS_STATE_PUBLIC_KEY=""
@@ -40,37 +37,14 @@ make_short_id() {
   od -An -N8 -tx1 /dev/urandom | tr -d ' \n'
 }
 
-detect_awg_source_ipv4() {
-  local ip
-  ip="$(
-    awk -F= '
-      /^[[:space:]]*Address[[:space:]]*=/ {
-        print $2
-        exit
-      }
-    ' "${AWG_CONFIG}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -m1 -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/' | cut -d/ -f1
-  )"
-
-  [[ -n "${ip}" ]] || {
-    echo "failed to detect AWG source IPv4" >&2
-    exit 1
-  }
-
-  echo "${ip}"
-}
-
-if [[ -z "${AWG_SOURCE_IPV4}" ]]; then
-  AWG_SOURCE_IPV4="$(detect_awg_source_ipv4)"
-fi
-
 DIRECT_UUID="${VLESS_DIRECT_UUID:-${VLESS_STATE_DIRECT_UUID}}"
 if [[ -z "${DIRECT_UUID}" ]]; then
   DIRECT_UUID="$(make_uuid)"
 fi
 
-VPN_UUID="${VLESS_VPN_UUID:-${VLESS_STATE_VPN_UUID}}"
-if [[ -z "${VPN_UUID}" ]]; then
-  VPN_UUID="$(make_uuid)"
+TRUST_UUID="${VLESS_TRUST_UUID:-${VLESS_STATE_TRUST_UUID}}"
+if [[ -z "${TRUST_UUID}" ]]; then
+  TRUST_UUID="$(make_uuid)"
 fi
 
 SHORT_ID="${VLESS_SHORT_ID:-${VLESS_STATE_SHORT_ID}}"
@@ -97,7 +71,7 @@ fi
 mkdir -p "$(dirname "${VLESS_STATE_FILE}")"
 cat > "${VLESS_STATE_FILE}" <<STATE
 VLESS_STATE_DIRECT_UUID="${DIRECT_UUID}"
-VLESS_STATE_VPN_UUID="${VPN_UUID}"
+VLESS_STATE_TRUST_UUID="${TRUST_UUID}"
 VLESS_STATE_SHORT_ID="${SHORT_ID}"
 VLESS_STATE_PRIVATE_KEY="${PRIVATE_KEY}"
 VLESS_STATE_PUBLIC_KEY="${PUBLIC_KEY}"
@@ -146,14 +120,14 @@ cat > /etc/xray/config.json <<JSON
       }
     },
     {
-      "tag": "vless-vpn",
+      "tag": "vless-trust",
       "listen": "0.0.0.0",
-      "port": ${VLESS_VPN_PORT},
+      "port": ${VLESS_TRUST_PORT},
       "protocol": "vless",
       "settings": {
         "clients": [
           {
-            "id": "${VPN_UUID}",
+            "id": "${TRUST_UUID}",
             "flow": "${VLESS_FLOW}"
           }
         ],
@@ -179,36 +153,6 @@ cat > /etc/xray/config.json <<JSON
         "enabled": true,
         "destOverride": ["http", "tls", "quic"]
       }
-    },
-    {
-      "tag": "socks-direct",
-      "listen": "0.0.0.0",
-      "port": ${SOCKS_DIRECT_PORT},
-      "protocol": "socks",
-      "settings": {
-        "auth": "noauth",
-        "udp": true,
-        "ip": "0.0.0.0"
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls", "quic"]
-      }
-    },
-    {
-      "tag": "socks-vpn",
-      "listen": "0.0.0.0",
-      "port": ${SOCKS_VPN_PORT},
-      "protocol": "socks",
-      "settings": {
-        "auth": "noauth",
-        "udp": true,
-        "ip": "0.0.0.0"
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls", "quic"]
-      }
     }
   ],
   "outbounds": [
@@ -217,12 +161,16 @@ cat > /etc/xray/config.json <<JSON
       "protocol": "freedom"
     },
     {
-      "tag": "vpn",
-      "protocol": "freedom",
+      "tag": "trustchannel",
+      "protocol": "socks",
       "settings": {
-        "domainStrategy": "UseIPv4"
-      },
-      "sendThrough": "${AWG_SOURCE_IPV4}"
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": ${TRUSTCHANNEL_UPSTREAM_SOCKS_PORT}
+          }
+        ]
+      }
     },
     {
       "tag": "block",
@@ -234,13 +182,13 @@ cat > /etc/xray/config.json <<JSON
     "rules": [
       {
         "type": "field",
-        "inboundTag": ["vless-direct", "socks-direct"],
+        "inboundTag": ["vless-direct"],
         "outboundTag": "direct"
       },
       {
         "type": "field",
-        "inboundTag": ["vless-vpn", "socks-vpn"],
-        "outboundTag": "vpn"
+        "inboundTag": ["vless-trust"],
+        "outboundTag": "trustchannel"
       }
     ]
   }
@@ -256,11 +204,11 @@ VLESS_PACKET_ENCODING="${VLESS_PACKET_ENCODING}"
 VLESS_PUBLIC_KEY="${PUBLIC_KEY}"
 VLESS_SHORT_ID="${SHORT_ID}"
 VLESS_DIRECT_PORT="${VLESS_DIRECT_PORT}"
-VLESS_VPN_PORT="${VLESS_VPN_PORT}"
-SOCKS_DIRECT_PORT="${SOCKS_DIRECT_PORT}"
-SOCKS_VPN_PORT="${SOCKS_VPN_PORT}"
-VLESS_DIRECT_UUID="${DIRECT_UUID}"
-VLESS_VPN_UUID="${VPN_UUID}"
+VLESS_TRUST_PORT="${VLESS_TRUST_PORT}"
 VLESS_DIRECT_NAME="${VLESS_DIRECT_NAME}"
-VLESS_VPN_NAME="${VLESS_VPN_NAME}"
+VLESS_TRUST_NAME="${VLESS_TRUST_NAME}"
+VLESS_DIRECT_UUID="${DIRECT_UUID}"
+VLESS_TRUST_UUID="${TRUST_UUID}"
+TRUSTCHANNEL_UPSTREAM_SOCKS_PORT="${TRUSTCHANNEL_UPSTREAM_SOCKS_PORT}"
 ENV
+chmod 600 /opt/gateway.env

@@ -1,48 +1,32 @@
-FROM golang:1.24-bookworm AS awg-go-builder
-
-ARG AMNEZIAWG_GO_REF=master
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git make \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src/amneziawg-go
-RUN git clone --depth=1 --branch "${AMNEZIAWG_GO_REF}" https://github.com/amnezia-vpn/amneziawg-go.git . \
-    && make
-
-FROM debian:bookworm-slim AS awg-tools-builder
-
-ARG AMNEZIAWG_TOOLS_REF=v1.0.20250903
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git build-essential bash pkg-config \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src/amneziawg-tools
-RUN git clone --depth=1 --branch "${AMNEZIAWG_TOOLS_REF}" https://github.com/amnezia-vpn/amneziawg-tools.git . \
-    && make -C src \
-    && make -C src install DESTDIR=/opt/awg-root PREFIX=/usr WITH_WGQUICK=yes WITH_SYSTEMDUNITS=no
-
 FROM teddysun/xray:latest AS xray-bin
 
 FROM debian:bookworm-slim
+
+ARG TRUSTTUNNEL_CLIENT_VERSION=v1.0.31
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         bash \
         ca-certificates \
         curl \
-        iproute2 \
-        iptables \
         tini \
-        dante-server \
-        passwd \
-        procps \
     && rm -rf /var/lib/apt/lists/*
 
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "${arch}" in \
+      amd64) tt_arch="linux-x86_64" ;; \
+      arm64) tt_arch="linux-aarch64" ;; \
+      *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    pkg="trusttunnel_client-${TRUSTTUNNEL_CLIENT_VERSION}-${tt_arch}.tar.gz"; \
+    url="https://github.com/TrustTunnel/TrustTunnelClient/releases/download/${TRUSTTUNNEL_CLIENT_VERSION}/${pkg}"; \
+    curl -fsSL "${url}" -o /tmp/trusttunnel_client.tgz; \
+    tar -xzf /tmp/trusttunnel_client.tgz -C /tmp; \
+    install -m 0755 /tmp/trusttunnel_client-${TRUSTTUNNEL_CLIENT_VERSION}-${tt_arch}/trusttunnel_client /usr/local/bin/trusttunnel_client; \
+    rm -rf /tmp/trusttunnel_client.tgz /tmp/trusttunnel_client-${TRUSTTUNNEL_CLIENT_VERSION}-${tt_arch}
+
 COPY --from=xray-bin /usr/bin/xray /usr/local/bin/xray
-COPY --from=awg-go-builder /src/amneziawg-go/amneziawg-go /usr/local/bin/amneziawg-go
-COPY --from=awg-tools-builder /opt/awg-root/ /
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/render-config.sh /usr/local/bin/render-config.sh

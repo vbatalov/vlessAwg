@@ -118,16 +118,16 @@ normalize_env_tuning() {
   probe_threshold="$(read_env_value "AWG_WATCHDOG_PROBE_FAIL_THRESHOLD")"
   vless_packet_encoding="$(read_env_value "VLESS_PACKET_ENCODING")"
 
-  if [[ -z "${mtu}" || "${mtu}" == "1376" ]]; then
-    write_env_value "AWG_MTU_OVERRIDE" "1200"
+  if [[ -z "${mtu}" || "${mtu}" == "1376" || "${mtu}" == "1200" ]]; then
+    write_env_value "AWG_MTU_OVERRIDE" "1000"
   fi
 
-  if [[ -z "${mss}" || "${mss}" == "1336" ]]; then
-    write_env_value "AWG_TCP_MSS" "1160"
+  if [[ -z "${mss}" || "${mss}" == "1336" || "${mss}" == "1160" ]]; then
+    write_env_value "AWG_TCP_MSS" "960"
   fi
 
-  if [[ -z "${keepalive}" || "${keepalive}" == "25" ]]; then
-    write_env_value "AWG_PERSISTENT_KEEPALIVE" "10"
+  if [[ -z "${keepalive}" || "${keepalive}" == "25" || "${keepalive}" == "10" ]]; then
+    write_env_value "AWG_PERSISTENT_KEEPALIVE" "5"
   fi
 
   if [[ -z "${wd_interval}" || "${wd_interval}" == "15" ]]; then

@@ -175,10 +175,23 @@ build_and_start() {
   docker compose up -d gateway
 }
 
+wait_gateway_ready() {
+  local i
+  for i in $(seq 1 40); do
+    if docker compose exec -T gateway test -f /opt/gateway.env >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "gateway did not become ready (/opt/gateway.env missing after start)"
+}
+
 print_debug() {
   local tc_port i out
   tc_port="$(read_env_value "TRUSTCHANNEL_UPSTREAM_SOCKS_PORT")"
   [[ -n "${tc_port}" ]] || tc_port="15080"
+
+  wait_gateway_ready
 
   log "debug: docker status"
   docker compose ps
@@ -191,11 +204,11 @@ print_debug() {
 
   log "debug: egress checks"
   echo "host_ip=$(curl -4 -fsS --max-time 12 https://ifconfig.me/ip || echo FAIL)"
-  echo "container_direct_ip=$(docker compose exec -T gateway sh -lc 'curl -4 -fsS --max-time 12 https://ifconfig.me/ip' || echo FAIL)"
-  echo "container_trust_ip=$(docker compose exec -T gateway sh -lc \"curl -4 -fsS --max-time 20 --socks5-hostname 127.0.0.1:${tc_port} https://ifconfig.me/ip\" || echo FAIL)"
+  echo "container_direct_ip=$(docker compose exec -T gateway curl -4 -fsS --max-time 12 https://ifconfig.me/ip || echo FAIL)"
+  echo "container_trust_ip=$(docker compose exec -T gateway curl -4 -fsS --max-time 20 --socks5-hostname 127.0.0.1:${tc_port} https://ifconfig.me/ip || echo FAIL)"
 
   for i in $(seq 1 8); do
-    out="$(docker compose exec -T gateway sh -lc \"curl -4 -s --max-time 10 --socks5-hostname 127.0.0.1:${tc_port} -o /dev/null -w '%{http_code}' https://www.google.com/generate_204\" || echo FAIL)"
+    out="$(docker compose exec -T gateway curl -4 -s --max-time 10 --socks5-hostname 127.0.0.1:${tc_port} -o /dev/null -w '%{http_code}' https://www.google.com/generate_204 || echo FAIL)"
     printf "trust_probe_%02d=%s\n" "${i}" "${out}"
     sleep 1
   done

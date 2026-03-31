@@ -158,7 +158,7 @@ resolve_server_host() {
 }
 
 ensure_trustchannel_config() {
-  [[ -f "${TRUSTCHANNEL_CONFIG}" ]] || fail "missing ${TRUSTCHANNEL_CONFIG}"
+  [[ -f "${TRUSTCHANNEL_CONFIG}" ]] || fail "missing ${TRUSTCHANNEL_CONFIG}; copy config/trustchannel-client.toml.example and fill real credentials"
   chmod 600 "${TRUSTCHANNEL_CONFIG}"
 }
 

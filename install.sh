@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 ENV_EXAMPLE="${ROOT_DIR}/.env.example"
-TRUSTCHANNEL_CONFIG="${ROOT_DIR}/config/trustchannel-client.toml"
 
 FORCE_REBUILD=0
 SERVER_HOST_ARG=""
@@ -94,37 +93,34 @@ write_env_value() {
 }
 
 normalize_env_defaults() {
-  local vless_packet_encoding trust_socks_port direct_port trust_port direct_name trust_name
+  local vless_packet_encoding vless_port vless_name vless_direct_port vless_direct_name
 
   vless_packet_encoding="$(read_env_value "VLESS_PACKET_ENCODING")"
-  trust_socks_port="$(read_env_value "TRUSTCHANNEL_UPSTREAM_SOCKS_PORT")"
-  direct_port="$(read_env_value "VLESS_DIRECT_PORT")"
-  trust_port="$(read_env_value "VLESS_TRUST_PORT")"
-  direct_name="$(read_env_value "VLESS_DIRECT_NAME")"
-  trust_name="$(read_env_value "VLESS_TRUST_NAME")"
+  vless_port="$(read_env_value "VLESS_PORT")"
+  vless_name="$(read_env_value "VLESS_NAME")"
+
+  # Compatibility with old variable names.
+  vless_direct_port="$(read_env_value "VLESS_DIRECT_PORT")"
+  vless_direct_name="$(read_env_value "VLESS_DIRECT_NAME")"
 
   if [[ -z "${vless_packet_encoding}" ]]; then
     write_env_value "VLESS_PACKET_ENCODING" "xudp"
   fi
 
-  if [[ -z "${trust_socks_port}" ]]; then
-    write_env_value "TRUSTCHANNEL_UPSTREAM_SOCKS_PORT" "15080"
+  if [[ -z "${vless_port}" ]]; then
+    if [[ -n "${vless_direct_port}" ]]; then
+      write_env_value "VLESS_PORT" "${vless_direct_port}"
+    else
+      write_env_value "VLESS_PORT" "8443"
+    fi
   fi
 
-  if [[ -z "${direct_port}" ]]; then
-    write_env_value "VLESS_DIRECT_PORT" "8443"
-  fi
-
-  if [[ -z "${trust_port}" ]]; then
-    write_env_value "VLESS_TRUST_PORT" "443"
-  fi
-
-  if [[ -z "${direct_name}" ]]; then
-    write_env_value "VLESS_DIRECT_NAME" "dockervpn-vless-vps"
-  fi
-
-  if [[ -z "${trust_name}" ]]; then
-    write_env_value "VLESS_TRUST_NAME" "dockervpn-vless-trustchannel"
+  if [[ -z "${vless_name}" ]]; then
+    if [[ -n "${vless_direct_name}" ]]; then
+      write_env_value "VLESS_NAME" "${vless_direct_name}"
+    else
+      write_env_value "VLESS_NAME" "dockervpn-vless"
+    fi
   fi
 }
 
@@ -157,11 +153,6 @@ resolve_server_host() {
   echo "${current}"
 }
 
-ensure_trustchannel_config() {
-  [[ -f "${TRUSTCHANNEL_CONFIG}" ]] || fail "missing ${TRUSTCHANNEL_CONFIG}; copy config/trustchannel-client.toml.example and fill real credentials"
-  chmod 600 "${TRUSTCHANNEL_CONFIG}"
-}
-
 build_and_start() {
   local server_host="$1"
   log "building docker image"
@@ -187,10 +178,6 @@ wait_gateway_ready() {
 }
 
 print_debug() {
-  local tc_port i out
-  tc_port="$(read_env_value "TRUSTCHANNEL_UPSTREAM_SOCKS_PORT")"
-  [[ -n "${tc_port}" ]] || tc_port="15080"
-
   wait_gateway_ready
 
   log "debug: docker status"
@@ -199,19 +186,12 @@ print_debug() {
   log "debug: gateway summary"
   docker compose logs --tail=80 gateway || true
 
-  log "debug: connection links"
+  log "debug: connection link"
   "${ROOT_DIR}/scripts/vless-link.sh" || true
 
-  log "debug: egress checks"
+  log "debug: egress check"
   echo "host_ip=$(curl -4 -fsS --max-time 12 https://ifconfig.me/ip || echo FAIL)"
-  echo "container_direct_ip=$(docker compose exec -T gateway curl -4 -fsS --max-time 12 https://ifconfig.me/ip || echo FAIL)"
-  echo "container_trust_ip=$(docker compose exec -T gateway curl -4 -fsS --max-time 20 --socks5-hostname 127.0.0.1:${tc_port} https://ifconfig.me/ip || echo FAIL)"
-
-  for i in $(seq 1 8); do
-    out="$(docker compose exec -T gateway curl -4 -s --max-time 10 --socks5-hostname 127.0.0.1:${tc_port} -o /dev/null -w '%{http_code}' https://www.google.com/generate_204 || echo FAIL)"
-    printf "trust_probe_%02d=%s\n" "${i}" "${out}"
-    sleep 1
-  done
+  echo "container_ip=$(docker compose exec -T gateway curl -4 -fsS --max-time 12 https://ifconfig.me/ip || echo FAIL)"
 }
 
 main() {
@@ -221,7 +201,6 @@ main() {
   enable_docker
   ensure_env_file
   normalize_env_defaults
-  ensure_trustchannel_config
 
   local server_host
   server_host="$(resolve_server_host)"

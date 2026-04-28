@@ -1,23 +1,15 @@
-# DockerVPN Gateway (VLESS direct + VLESS TrustChannel)
+# DockerVPN Gateway (VLESS only)
 
-Проект поднимает один контейнер `gateway`:
+Проект поднимает один контейнер `gateway` с `xray` и одним входом `VLESS + REALITY`.
 
-- `xray` (только VLESS inbounds)
-- `trusttunnel_client` (внутренний upstream для TrustChannel)
+Подключение только одно:
 
-Поддерживаются 2 режима подключения:
-
-- `VLESS VPS` -> `MAC -> VPS -> Internet`
-- `VLESS TrustChannel` -> `MAC -> VPS -> TrustChannel -> Internet`
-
-SOCKS5 для внешних клиентов отключен (не публикуется).
+- `VLESS` -> `MAC -> VPS -> Internet`
 
 ## Быстрый запуск на новом VPS
 
 1. Склонировать репозиторий.
-2. Скопировать `config/trustchannel-client.toml.example` в `config/trustchannel-client.toml`.
-3. Заполнить `config/trustchannel-client.toml` реальными приватными данными endpoint.
-4. Запустить:
+2. Запустить:
 
 ```bash
 sudo ./install.sh
@@ -40,18 +32,16 @@ sudo ./install.sh <SERVER_IP> --force
 - ставит системные пакеты и Docker
 - включает/запускает Docker daemon
 - создает `.env` из `.env.example` (если его нет)
-- нормализует дефолты VLESS/TrustChannel
-- проверяет `config/trustchannel-client.toml`
+- нормализует дефолты VLESS
 - прописывает `SERVER_HOST`
 - собирает и поднимает `gateway`
 - запускает debug:
   - `docker compose ps`
   - `docker compose logs --tail=80 gateway`
-  - вывод ссылок подключения
-  - проверка egress (`host_ip`, `container_direct_ip`, `container_trust_ip`)
-  - серия `trust_probe` через внутренний TrustChannel SOCKS
+  - вывод ссылки подключения
+  - проверка egress (`host_ip`, `container_ip`)
 
-## Получить ссылки подключений
+## Получить ссылку подключения
 
 ```bash
 ./scripts/vless-link.sh
@@ -59,5 +49,4 @@ sudo ./install.sh <SERVER_IP> --force
 
 Скрипт выводит:
 
-- `VLESS VPS`
-- `VLESS TrustChannel`
+- `VLESS`

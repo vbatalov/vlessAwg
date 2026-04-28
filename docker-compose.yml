@@ -14,16 +14,10 @@ services:
       VLESS_FLOW: ${VLESS_FLOW:-xtls-rprx-vision}
       VLESS_PACKET_ENCODING: ${VLESS_PACKET_ENCODING:-xudp}
       VLESS_SHORT_ID: ${VLESS_SHORT_ID:-}
-      VLESS_DIRECT_PORT: ${VLESS_DIRECT_PORT:-8443}
-      VLESS_TRUST_PORT: ${VLESS_TRUST_PORT:-443}
-      VLESS_DIRECT_NAME: ${VLESS_DIRECT_NAME:-dockervpn-vless-vps}
-      VLESS_TRUST_NAME: ${VLESS_TRUST_NAME:-dockervpn-vless-trustchannel}
-      VLESS_DIRECT_UUID: ${VLESS_DIRECT_UUID:-}
-      VLESS_TRUST_UUID: ${VLESS_TRUST_UUID:-}
-      TRUSTCHANNEL_CONFIG: /config/trustchannel-client.toml
-      TRUSTCHANNEL_UPSTREAM_SOCKS_PORT: ${TRUSTCHANNEL_UPSTREAM_SOCKS_PORT:-15080}
+      VLESS_PORT: ${VLESS_PORT:-8443}
+      VLESS_NAME: ${VLESS_NAME:-dockervpn-vless}
+      VLESS_UUID: ${VLESS_UUID:-}
     volumes:
-      - ./config:/config:ro
       - gateway-state:/var/lib/dockervpn
 
 volumes:
